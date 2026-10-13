@@ -532,6 +532,55 @@ def battery_summary(devices):
             "charging": low["battery"].get("charging", False)}
 
 
+# ---------------------------------------------------------------------------- Bluetooth adapters
+
+SYSFS_BLUETOOTH = "/sys/class/bluetooth"
+# USB vendors whose Bluetooth chips sit on internal M.2 / mainboard Wi-Fi + Bluetooth cards
+# (they hang off an internal USB port that firmware often still reports as removable).
+INTERNAL_BT_VENDORS = {
+    0x8087: "Intel", 0x0E8D: "MediaTek", 0x13D3: "AzureWave", 0x0489: "Foxconn",
+    0x0CF3: "Qualcomm Atheros", 0x04CA: "Lite-On", 0x105B: "Foxconn",
+}
+
+
+def bt_adapters(sysfs=SYSFS_BLUETOOTH):
+    """[{id, builtin, bus, vendor}] for every Bluetooth controller (hci0, hci1, ...)."""
+    out = []
+    for entry in sorted(glob.glob(os.path.join(sysfs, "hci*"))):
+        name = os.path.basename(entry)
+        if ":" in name:  # connection objects like hci0:256
+            continue
+        dev = os.path.realpath(os.path.join(entry, "device"))
+        usb = os.path.dirname(dev) if os.path.exists(os.path.join(os.path.dirname(dev), "idVendor")) else None
+        vendor = ""
+        if usb:
+            try:
+                vid = int(read_text(os.path.join(usb, "idVendor"), 16).strip() or "0", 16)
+            except ValueError:
+                vid = 0
+            maker = clean(read_text(os.path.join(usb, "manufacturer"), 128), 40)
+            vendor = INTERNAL_BT_VENDORS.get(vid) or maker
+            removable = read_text(os.path.join(usb, "removable"), 32).strip()
+            builtin = removable == "fixed" or vid in INTERNAL_BT_VENDORS
+            bus = "usb"
+        else:
+            builtin, bus = True, "pci" if "/pci" in dev else "other"
+        for suffix in (" Inc.", " Inc", " Corp.", " Corporation", " Co., Ltd.", ", Inc."):
+            if vendor.endswith(suffix):
+                vendor = vendor[: -len(suffix)]
+        out.append({"id": name, "builtin": builtin, "bus": bus, "vendor": vendor})
+    return out
+
+
+def adapter_of(native_path, adapters):
+    """The hci id a UPower device belongs to (/org/bluez/hci0/dev_...), else the first one."""
+    if native_path.startswith("/org/bluez/"):
+        part = native_path.split("/")[3] if len(native_path.split("/")) > 3 else ""
+        if part.startswith("hci"):
+            return part
+    return adapters[0]["id"] if adapters else None
+
+
 # ---------------------------------------------------------------------------- UPower
 
 # UPower device types worth showing; laptop batteries, mains and UPS are not peripherals.
@@ -614,7 +663,7 @@ def parse_upower(text):
                 "charging": charging,
                 "external_power": charging or state == "fully-charged",
             },
-            "receiver": None, "slot": None,
+            "receiver": None, "slot": None, "native": native,
             "connection": "bluetooth" if bluetooth else "wireless",
         })
     return out
@@ -764,6 +813,11 @@ class Monitor:
             n.events.clear()  # replies to our own requests are not news
         if self.other_devices:
             devices.extend(merge_upower(devices, parse_upower(run_bounded(["upower", "--dump"]))))
+        adapters = bt_adapters()
+        for d in devices:
+            if d.get("connection") == "bluetooth":
+                d["adapter"] = adapter_of(d.pop("native", ""), adapters)
+            d.pop("native", None)
         if denied and not receivers and not devices:
             phase = "permission"
         elif not found and not devices:
@@ -774,6 +828,7 @@ class Monitor:
             "phase": phase,
             "denied": denied,
             "receivers": receivers,
+            "adapters": adapters,
             "devices": devices,
             "lowest": battery_summary(devices),
             "updated": int(time.time()),

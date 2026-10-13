@@ -230,5 +230,45 @@ class UPower(unittest.TestCase):
         self.assertEqual(ld.parse_upower(""), [])
 
 
+class Adapters(unittest.TestCase):
+    def make(self, root, hci, parent, ids=None, removable=None, maker=""):
+        dev = os.path.join(root, "devices", parent, hci + "-if")
+        os.makedirs(dev)
+        usb = os.path.dirname(dev)
+        if ids:
+            with open(os.path.join(usb, "idVendor"), "w") as f:
+                f.write(ids)
+            with open(os.path.join(usb, "removable"), "w") as f:
+                f.write(removable)
+            with open(os.path.join(usb, "manufacturer"), "w") as f:
+                f.write(maker)
+        os.makedirs(os.path.join(root, "bt", hci))
+        os.symlink(dev, os.path.join(root, "bt", hci, "device"))
+
+    def test_builtin_and_dongle(self):
+        with tempfile.TemporaryDirectory() as root:
+            # MediaTek combo card on an internal USB port that claims to be removable
+            self.make(root, "hci0", "usb3/3-8", "0e8d", "removable", "MediaTek Inc.")
+            # CSR USB Bluetooth stick in a front port
+            self.make(root, "hci1", "usb1/1-2", "0a12", "removable", "Cambridge Silicon Radio")
+            # Realtek chip on a port the firmware marks as fixed (soldered on the board)
+            self.make(root, "hci2", "usb1/1-9", "0bda", "fixed", "Realtek")
+            # Controller on PCI / UART (no USB parent)
+            self.make(root, "hci3", "pci0000:00/0000:00:14.3")
+            os.makedirs(os.path.join(root, "bt", "hci0:256"))
+            got = {a["id"]: a for a in ld.bt_adapters(os.path.join(root, "bt"))}
+        self.assertEqual(sorted(got), ["hci0", "hci1", "hci2", "hci3"])
+        self.assertEqual((got["hci0"]["builtin"], got["hci0"]["vendor"]), (True, "MediaTek"))
+        self.assertFalse(got["hci1"]["builtin"])
+        self.assertTrue(got["hci2"]["builtin"])
+        self.assertEqual((got["hci3"]["builtin"], got["hci3"]["bus"]), (True, "pci"))
+
+    def test_adapter_of(self):
+        adapters = [{"id": "hci0"}, {"id": "hci1"}]
+        self.assertEqual(ld.adapter_of("/org/bluez/hci1/dev_AA_BB", adapters), "hci1")
+        self.assertEqual(ld.adapter_of("hid-aa:bb:cc:dd:ee:ff-battery", adapters), "hci0")
+        self.assertIsNone(ld.adapter_of("x", []))
+
+
 if __name__ == "__main__":
     unittest.main()

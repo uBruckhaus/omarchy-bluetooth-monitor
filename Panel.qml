@@ -120,7 +120,20 @@ Panel {
                  sub: t("dongleSub", [paired, rec.max_devices]), devices: devs,
                  online: devs.filter(function(d) { return d.online }).length })
     }
-    var groups = [["bluetooth", t("btAdapter")], ["usb", connName("usb")], ["wireless", connName("wireless")]]
+    // One link per Bluetooth adapter: built into the PC, or a USB Bluetooth stick.
+    var adapters = stats.adapters || []
+    var btDevices = devices.filter(function(d) { return !d.receiver && d.connection === "bluetooth" })
+    for (var a = 0; a < adapters.length; a++) {
+      var ad = adapters[a]
+      var mine = btDevices.filter(function(d) { return d.adapter === ad.id || (!d.adapter && a === 0) })
+      if (!mine.length && !showInactive) continue
+      out.push({ type: "bluetooth", builtin: ad.builtin,
+                 label: ad.builtin ? t("btBuiltin") : t("btDongle") + (adapters.length > 1 ? " " + (a + 1) : ""),
+                 sub: (ad.builtin ? t("btBuiltinSub") : t("btDongleSub")) + (ad.vendor ? " · " + ad.vendor : ""),
+                 devices: mine, online: mine.filter(function(d) { return d.online }).length })
+    }
+    var groups = adapters.length ? [] : [["bluetooth", t("btAdapter")]]
+    groups = groups.concat([["usb", connName("usb")], ["wireless", connName("wireless")]])
     for (var g = 0; g < groups.length; g++) {
       var code = groups[g][0]
       var list = devices.filter(function(d) { return !d.receiver && d.connection === code })
@@ -606,6 +619,27 @@ Panel {
                   color: linkRow.live ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.2) : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.06)
                   border.width: 1
                   border.color: linkRow.lineColor
+                  // Small corner mark for Bluetooth: built into the PC, or a USB stick.
+                  Rectangle {
+                    visible: linkRow.link.type === "bluetooth" && linkRow.link.builtin !== undefined
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: -Style.space(4)
+                    width: Style.space(15); height: width
+                    radius: width / 2
+                    color: Color.popups.background
+                    border.width: 1
+                    border.color: linkRow.lineColor
+                    Text {
+                      anchors.centerIn: parent
+                      textFormat: Text.PlainText
+                      text: linkRow.link.builtin ? "󰍹" : "󰕓"
+                      color: linkRow.live ? root.fg : root.dim
+                      font.family: root.font
+                      font.pixelSize: Style.font.caption * 0.7
+                    }
+                    z: 1
+                  }
                   Text {
                     anchors.centerIn: parent
                     textFormat: Text.PlainText
@@ -634,6 +668,8 @@ Panel {
                     textFormat: Text.PlainText
                     elide: Text.ElideRight
                     text: linkRow.link.sub
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 2
                     color: root.dim
                     font.family: root.font
                     font.pixelSize: Style.font.caption * 0.85
