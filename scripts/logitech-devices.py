@@ -615,7 +615,7 @@ def parse_upower(text):
                 "external_power": charging or state == "fully-charged",
             },
             "receiver": None, "slot": None,
-            "connection": "Bluetooth" if bluetooth else "Wireless",
+            "connection": "bluetooth" if bluetooth else "wireless",
         })
     return out
 
@@ -684,9 +684,10 @@ class Monitor:
         self.online = {}       # device id -> last known online state
         self.store = SettingsStore()
         self.opened = False
+        self.other_devices = True  # UPower peripherals; the panel's settings switch this
         self.snapshot = {"phase": "starting", "receivers": [], "devices": []}
         self.message = ""
-        self.message_error = False
+        self.message_args = []
 
     def node(self, path):
         n = self.nodes.get(path)
@@ -739,7 +740,7 @@ class Monitor:
                         did = f"{info['node']}-{slot}"
                         dev = self.device_for(did, node, slot)
                         entry = self.read_device(dev, did, wpid, KINDS.get(kind, "device"), codename)
-                        entry.update({"receiver": rec_id, "slot": slot, "connection": rec_entry["name"]})
+                        entry.update({"receiver": rec_id, "slot": slot, "connection": info["family"]})
                         rec_entry["devices"].append(did)
                         devices.append(entry)
                     receivers.append(rec_entry)
@@ -749,7 +750,7 @@ class Monitor:
                     kind = "device"
                     entry = self.read_device(dev, did, info["product"], kind, info["hid_name"])
                     entry.update({"receiver": None, "slot": None,
-                                  "connection": "Bluetooth" if info["bus"] == "bluetooth" else "USB cable"})
+                                  "connection": "bluetooth" if info["bus"] == "bluetooth" else "usb"})
                     devices.append(entry)
             except OSError as e:
                 if e.errno in (errno.ENODEV, errno.EIO, errno.EBADF):
@@ -761,7 +762,8 @@ class Monitor:
                 self.drop(path)
         for n in self.nodes.values():
             n.events.clear()  # replies to our own requests are not news
-        devices.extend(merge_upower(devices, parse_upower(run_bounded(["upower", "--dump"]))))
+        if self.other_devices:
+            devices.extend(merge_upower(devices, parse_upower(run_bounded(["upower", "--dump"]))))
         if denied and not receivers and not devices:
             phase = "permission"
         elif not found and not devices:
@@ -780,7 +782,7 @@ class Monitor:
     def read_device(self, dev, did, wpid, kind, codename):
         key = f"{wpid:04x}"
         entry = {"id": did, "key": key, "wpid": key, "kind": kind,
-                 "name": codename or "Logitech device", "online": False}
+                 "name": codename, "online": False}
         proto = dev.ping()
         was_online = self.online.get(did)
         self.online[did] = proto is not None
@@ -841,22 +843,23 @@ class Monitor:
         dev = self.devices.get(str(did))
         entry = next((d for d in self.snapshot.get("devices", []) if d["id"] == did), None)
         if not dev or not entry or not entry.get("online"):
-            self.note("That device is not connected right now.", True)
+            self.note("errNotConnected")
             return
         try:
             self.apply(dev, key, value, remember=entry["key"])
-            self.note("", False)
+            self.note("")
         except (HidppError, Timeout, ValueError, TypeError) as e:
-            self.note(f"Could not change {key}: {e or 'no answer'}", True)
+            self.note("errChange", clean(str(e) or "no answer", 80))
 
-    def note(self, text, error):
-        self.message = text
-        self.message_error = error
+    def note(self, code, *args):
+        """A message for the panel as a translation key plus arguments ("" clears it)."""
+        self.message = code
+        self.message_args = list(args)
 
     def emit(self):
         snap = dict(self.snapshot)
-        snap["message"] = self.message
-        snap["message_error"] = self.message_error
+        snap["message_code"] = self.message
+        snap["message_args"] = self.message_args
         self.out.write(json.dumps(snap) + "\n")
         self.out.flush()
 
@@ -947,6 +950,9 @@ class Monitor:
             self.opened = True
         elif cmd == "closed":
             self.opened = False
+        elif cmd == "options":
+            if "other_devices" in msg:
+                self.other_devices = bool(msg["other_devices"])
         elif cmd == "set":
             self.set(str(msg.get("device", "")), str(msg.get("key", "")), msg.get("value"))
         # "refresh" and everything else just trigger a scan

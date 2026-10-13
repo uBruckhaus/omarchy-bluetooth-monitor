@@ -210,14 +210,14 @@ class UPower(unittest.TestCase):
         devs = {d["name"]: d for d in ld.parse_upower(UPOWER_DUMP)}
         self.assertNotIn("BAT0", str(devs))            # laptop battery skipped
         pad = devs["Magic Trackpad"]
-        self.assertEqual((pad["kind"], pad["battery"]["percent"], pad["connection"]), ("touchpad", 22, "Bluetooth"))
+        self.assertEqual((pad["kind"], pad["battery"]["percent"], pad["connection"]), ("touchpad", 22, "bluetooth"))
         buds = devs["bGalaxy Buds/b"]
         self.assertEqual(buds["kind"], "headset")
         self.assertTrue(buds["battery"]["charging"])
         pad_level = devs["Xbox Wireless Controller"]["battery"]
         self.assertEqual((pad_level["level"], pad_level["percent"]), ("low", 10))
         # hidpp_battery entries are skipped; the hid-<mac>-battery one is Bluetooth
-        self.assertEqual(devs["MX Master 4"]["connection"], "Bluetooth")
+        self.assertEqual(devs["MX Master 4"]["connection"], "bluetooth")
         self.assertEqual(sum(1 for d in ld.parse_upower(UPOWER_DUMP) if d["name"] == "MX Master 4"), 1)
 
     def test_merge_skips_devices_hidpp_already_shows(self):

@@ -4,17 +4,41 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui as Ui
+import "I18n.js" as I18n
 
-// Bar indicator for Logitech mice and keyboards: a mouse glyph in the theme's green
-// while every connected battery is fine, orange when one runs low (25 % or less) and
-// red when one is critical (10 % or less); charging devices don't count. The glyph
-// switches to the device running low (keyboard, trackpad, earphones, ...); mouse on a tie. Dim while no
-// device is connected. Left click opens the panel; right click refreshes. All device
+// Bar indicator for Logitech mice and keyboards and other battery-powered peripherals:
+// a mouse glyph in the theme's green while every connected battery is fine, orange when
+// one runs low and red when one is critical (thresholds in the panel's settings, 25 % and
+// 10 % by default); charging devices don't count. The glyph switches to the device
+// running low (keyboard, trackpad, earphones, ...); mouse on a tie. Dim while no device
+// is connected. Left click opens the panel; right click refreshes. All device
 // traffic goes through scripts/logitech-devices.py (HID++ over /dev/hidraw), which
 // receives JSON commands on stdin and streams JSON snapshots on stdout.
 Ui.BarWidget {
   id: root
   moduleName: "ubruckhaus.logitech-devices"
+
+  // Interface language: the system's unless one is picked in the panel's settings.
+  // Options live in this widget's own shell.json entry, like the language.
+  readonly property string systemLang: I18n.systemLanguage(Quickshell.env("LC_ALL"), Quickshell.env("LC_MESSAGES"), Quickshell.env("LANG"))
+  readonly property string languageSetting: String(root.setting("language", "auto"))
+  readonly property string lang: I18n.resolve(languageSetting, systemLang)
+  function t(key, args) { return I18n.tr(lang, key, args) }
+  function tn(key, n, args) { return I18n.trn(lang, key, n, args) }
+  readonly property int lowAt: Number(root.setting("lowAt", 25))
+  readonly property int criticalAt: Number(root.setting("criticalAt", 10))
+  readonly property bool showOffline: root.setting("showOffline", true) !== false
+  readonly property bool otherDevices: root.setting("otherDevices", true) !== false
+  // value === defaultValue removes the key, so shell.json only holds real choices.
+  function setOption(key, value, defaultValue) {
+    if (!root.bar || !root.bar.shell || typeof root.bar.shell.updateEntryInline !== "function") return
+    var next = Object.assign({}, root.settings || {})
+    if (value === defaultValue) delete next[key]
+    else next[key] = value
+    root.bar.shell.updateEntryInline(root.moduleName, next)
+  }
+  function setLanguage(code) { setOption("language", code, "auto") }
+  onOtherDevicesChanged: send({ cmd: "options", other_devices: root.otherDevices })
 
   property var stats: ({})
   // Push every snapshot into the panel; never let it read from an older widget instance.
@@ -29,7 +53,7 @@ Ui.BarWidget {
   function batteryState(b) {
     if (!b || b.charging) return "ok"
     var p = b.percent
-    if (p !== null && p !== undefined) return p <= 10 ? "critical" : (p <= 25 ? "low" : "ok")
+    if (p !== null && p !== undefined) return p <= root.criticalAt ? "critical" : (p <= root.lowAt ? "low" : "ok")
     return b.level === "critical" || b.level === "empty" ? "critical" : (b.level === "low" ? "low" : "ok")
   }
   // The worst state among connected devices, and which device kind it belongs to. On a
@@ -93,13 +117,16 @@ Ui.BarWidget {
     return t
   }
 
+  function deviceName(d) { return d.name || t("unnamed") }
+
   readonly property string summary: {
-    if (stats.phase === "permission") return "Logitech Devices\nNo access to the receivers yet. Click to allow it."
-    if (stats.phase === "none") return "Logitech Devices\nNo receiver or battery-powered device found."
+    if (stats.phase === "permission") return "Logitech Devices\n" + t("tipAccess")
+    if (stats.phase === "none") return "Logitech Devices\n" + t("tipNone")
     var lines = ["Logitech Devices"]
     for (var i = 0; i < devices.length; i++) {
       var d = devices[i]
-      lines.push((d.online ? "● " : "○ ") + d.name + (d.online ? (d.battery ? "  " + batteryText(d) : "") : "  · off"))
+      if (!d.online && !root.showOffline) continue
+      lines.push((d.online ? "● " : "○ ") + deviceName(d) + (d.online ? (d.battery ? "  " + batteryText(d) : "") : "  · " + t("off")))
     }
     return lines.join("\n")
   }
@@ -130,7 +157,10 @@ Ui.BarWidget {
         try { root.stats = JSON.parse(line) } catch (e) { /* partial line during shutdown */ }
       }
     }
-    onRunningChanged: if (running && root.opened) Qt.callLater(function() { root.send({ cmd: "open" }) })
+    onRunningChanged: if (running) Qt.callLater(function() {
+      root.send({ cmd: "options", other_devices: root.otherDevices })
+      if (root.opened) root.send({ cmd: "open" })
+    })
     onExited: restart.start()
   }
   Timer { id: restart; interval: 5000; onTriggered: helper.running = true }

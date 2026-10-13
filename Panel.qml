@@ -4,10 +4,12 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "I18n.js" as I18n
 
 // Logitech Devices popup: one card per device (battery, connection) that expands to
 // its settings (DPI, SmartShift, scroll wheel, Fn keys), then the receivers with their
-// free pairing slots. Repeaters are driven by counts and read the current snapshot by
+// free pairing slots. The gear opens the settings page (language, warning levels,
+// which devices to show, receiver access); back with the button, Backspace or Esc. Repeaters are driven by counts and read the current snapshot by
 // index, so a refresh never rebuilds rows (a slider drag survives every snapshot).
 Panel {
   id: root
@@ -19,9 +21,24 @@ Panel {
   readonly property var barIdentity: hostWidget || root
   property var stats: ({})  // pushed by BarWidget on every snapshot
   readonly property string phase: String(stats.phase || "starting")
-  readonly property var devices: stats.devices || []
+  readonly property var allDevices: stats.devices || []
+  // Switched-off devices only when the setting asks for them.
+  readonly property var devices: {
+    if (!hostWidget || hostWidget.showOffline) return allDevices
+    return allDevices.filter(function(d) { return d.online })
+  }
   readonly property var receivers: stats.receivers || []
   property var expanded: ({})   // device id -> true while its settings are shown
+  property bool settingsOpen: false
+  readonly property string lang: hostWidget ? hostWidget.lang : "en"
+  readonly property string languageSetting: hostWidget ? hostWidget.languageSetting : "auto"
+  readonly property string systemLang: hostWidget ? hostWidget.systemLang : "en"
+  function t(key, args) { return I18n.tr(lang, key, args) }
+  function tn(key, n, args) { return I18n.trn(lang, key, n, args) }
+  function deviceName(dev) { return dev.name || t("unnamed") }
+  function connName(code) { return code ? t("conn_" + code) : "" }
+  // Receiver access is missing while some Logitech node could not be opened.
+  readonly property bool accessMissing: (stats.denied || []).length > 0
   readonly property color fg: Color.popups.text
   readonly property color dim: Qt.darker(fg, 1.45)
   readonly property string font: root.bar ? root.bar.fontFamily : Style.font.family
@@ -39,7 +56,7 @@ Panel {
   function hasSettings(dev) { return !!(dev.dpi || dev.smartshift || dev.wheel || dev.fnswap) }
   function onlineCount() {
     var n = 0
-    for (var i = 0; i < devices.length; i++) if (devices[i].online) n++
+    for (var i = 0; i < allDevices.length; i++) if (allDevices[i].online) n++
     return n
   }
 
@@ -78,16 +95,16 @@ Panel {
     return s === "ok" ? root.fg : root.hostWidget.stateColor(s)
   }
   function statusLine(dev) {
-    var where = dev.connection + (dev.slot ? " · slot " + dev.slot : "")
-    if (!dev.online) return where + " · not connected"
+    var where = connName(dev.connection) + (dev.slot ? " · " + t("slotN", [dev.slot]) : "")
+    if (!dev.online) return where + " · " + t("notConnected")
     var b = dev.battery
-    if (b && b.charging) return where + " · charging"
-    if (b && b.status === "full" && b.external_power) return where + " · charged"
+    if (b && b.charging) return where + " · " + t("charging")
+    if (b && b.status === "full" && b.external_power) return where + " · " + t("charged")
     return where
   }
 
   function open() { root.controller.show() }
-  function close() { root.controller.hide() }
+  function close() { root.controller.hide(); root.settingsOpen = false }
   function toggle() { if (root.opened) root.close(); else root.open() }
 
   // The theme's green (colors.toml) for charging batteries, like the bar's running indicators.
@@ -157,7 +174,10 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      onCloseRequested: root.close()
+      // Open dropdown lists take their own keys.
+      blocked: languagePicker.popupOpen || lowPicker.popupOpen || criticalPicker.popupOpen
+      onCloseRequested: { if (root.settingsOpen) root.settingsOpen = false; else root.close() }
+      onTextKey: function(text) { if (text === "\b" && root.settingsOpen) root.settingsOpen = false }
       onTabRequested: function(direction) { root.switchPanel(direction) }
 
       Flickable {
@@ -179,9 +199,37 @@ Panel {
             fontFamily: root.font
             title: "Logitech Devices"
             meta: root.phase === "ok"
-              ? root.onlineCount() + " of " + root.devices.length + " devices connected · " + root.receivers.length + (root.receivers.length === 1 ? " receiver" : " receivers")
-              : root.phase === "permission" ? "Access needed" : root.phase === "none" ? "Nothing found" : "Looking for devices…"
-            detail: root.stats.lowest ? "Lowest battery " + root.stats.lowest.percent + "%" : ""
+              ? root.t("connectedOf", [root.onlineCount(), root.allDevices.length]) + (root.receivers.length ? " · " + root.tn("receiversN", root.receivers.length, [root.receivers.length]) : "")
+              : root.phase === "permission" ? root.t("accessNeeded") : root.phase === "none" ? root.t("nothingFound") : root.t("looking")
+            detail: root.stats.lowest ? root.t("lowestBattery", [root.stats.lowest.percent]) : ""
+            trailingControl: Component {
+              // As tall as the hero text, with the gear centred on the title
+              // row so it lines up with the detail pill.
+              Item {
+                visible: !root.settingsOpen
+                implicitWidth: gearButton.width
+                implicitHeight: heroTitle.implicitHeight + Style.space(2) + heroMeta.implicitHeight
+                Text { id: heroTitle; visible: false; textFormat: Text.PlainText; text: "W"; font.family: root.font; font.pixelSize: Style.font.title; font.bold: true }
+                Text { id: heroBody; visible: false; textFormat: Text.PlainText; text: "W"; font.family: root.font; font.pixelSize: Style.font.body; font.bold: true }
+                Text { id: heroMeta; visible: false; textFormat: Text.PlainText; text: "W"; font.family: root.font; font.pixelSize: Style.font.caption; font.bold: true }
+                Button {
+                  id: gearButton
+                  y: Math.round((heroTitle.implicitHeight - height) / 2)
+                  // The pill is its body text plus Style.space(4); a square gear of that height.
+                  height: heroBody.implicitHeight + Style.space(4)
+                  width: height
+                  iconText: "\udb81\udc93"
+                  bordered: true
+                  iconSize: Style.font.body
+                  horizontalPadding: Style.space(4)
+                  verticalPadding: Style.space(1)
+                  foreground: root.fg
+                  fontFamily: root.font
+                  tooltipText: root.t("settings")
+                  onClicked: root.settingsOpen = true
+                }
+              }
+            }
             iconComponent: Component {
               Text {
                 textFormat: Text.PlainText
@@ -192,6 +240,179 @@ Panel {
               }
             }
           }
+
+          // ------------------------------------------------------------ settings
+          Column {
+            visible: root.settingsOpen
+            width: parent.width
+            spacing: Style.space(12)
+
+            PanelSeparator { width: parent.width; foreground: root.fg }
+
+            Row {
+              spacing: Style.space(12)
+              Button {
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.t("back") + " · \u232b"
+                iconText: "\udb80\udc4d"
+                bordered: true
+                foreground: root.fg
+                fontFamily: root.font
+                tooltipText: root.t("backTip")
+                onClicked: root.settingsOpen = false
+              }
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: root.t("settings").toUpperCase()
+                color: root.fg
+                font.family: root.font
+                font.pixelSize: Style.font.caption
+                font.bold: true
+                font.letterSpacing: 1
+              }
+            }
+            PanelSeparator { width: parent.width; foreground: root.fg }
+
+            Row {
+              spacing: Style.space(10)
+              Text {
+                id: languageLabel
+                anchors.verticalCenter: parent.verticalCenter
+                width: Style.space(170)
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                text: root.t("language")
+                color: root.dim
+                font.family: root.font
+                font.pixelSize: Style.font.caption
+              }
+              CompactDropdown {
+                id: languagePicker
+                anchors.verticalCenter: parent.verticalCenter
+                // Wide enough for the longest option, plus padding and the chevron.
+                width: fitWidth
+                fontSize: Style.font.caption
+                rowHeight: languageLabel.implicitHeight + Style.space(6)
+                popupRowHeight: languageLabel.implicitHeight + Style.space(8)
+                showLabel: false
+                fontFamily: root.font
+                options: [{ value: "auto", label: root.t("systemLanguage", [I18n.languageName(root.systemLang)]) }]
+                  .concat(I18n.LANGUAGES.map(function(l) { return { value: l.code, label: l.name } }))
+                value: root.languageSetting
+                // Picking cuts the value binding inside the dropdown; restore it.
+                onChanged: function(picked) {
+                  if (root.hostWidget) root.hostWidget.setLanguage(picked)
+                  languagePicker.value = Qt.binding(function() { return root.languageSetting })
+                }
+              }
+            }
+
+            Row {
+              spacing: Style.space(10)
+              Text {
+                id: lowLabel
+                anchors.verticalCenter: parent.verticalCenter
+                width: Style.space(170)
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                text: root.t("lowAt")
+                color: root.dim
+                font.family: root.font
+                font.pixelSize: Style.font.caption
+              }
+              CompactDropdown {
+                id: lowPicker
+                anchors.verticalCenter: parent.verticalCenter
+                width: fitWidth
+                fontSize: Style.font.caption
+                rowHeight: languageLabel.implicitHeight + Style.space(6)
+                popupRowHeight: languageLabel.implicitHeight + Style.space(8)
+                showLabel: false
+                fontFamily: root.font
+                options: [15, 20, 25, 30, 40, 50].map(function(v) { return { value: String(v), label: root.t("atOrBelow", [v]) } })
+                value: String(root.hostWidget ? root.hostWidget.lowAt : 25)
+                onChanged: function(picked) {
+                  if (root.hostWidget) root.hostWidget.setOption("lowAt", Number(picked), 25)
+                  lowPicker.value = Qt.binding(function() { return String(root.hostWidget ? root.hostWidget.lowAt : 25) })
+                }
+              }
+            }
+
+            Row {
+              spacing: Style.space(10)
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                width: Style.space(170)
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                text: root.t("criticalAt")
+                color: root.dim
+                font.family: root.font
+                font.pixelSize: Style.font.caption
+              }
+              CompactDropdown {
+                id: criticalPicker
+                anchors.verticalCenter: parent.verticalCenter
+                width: fitWidth
+                fontSize: Style.font.caption
+                rowHeight: languageLabel.implicitHeight + Style.space(6)
+                popupRowHeight: languageLabel.implicitHeight + Style.space(8)
+                showLabel: false
+                fontFamily: root.font
+                options: [5, 10, 15, 20].map(function(v) { return { value: String(v), label: root.t("atOrBelow", [v]) } })
+                value: String(root.hostWidget ? root.hostWidget.criticalAt : 10)
+                onChanged: function(picked) {
+                  if (root.hostWidget) root.hostWidget.setOption("criticalAt", Number(picked), 10)
+                  criticalPicker.value = Qt.binding(function() { return String(root.hostWidget ? root.hostWidget.criticalAt : 10) })
+                }
+              }
+            }
+
+            SettingRow {
+              label: root.t("showOffline")
+              ToggleSwitch {
+                cursorRing: false
+                trackHeight: Style.space(18)
+                checked: !root.hostWidget || root.hostWidget.showOffline
+                foreground: root.fg
+                onToggled: if (root.hostWidget) root.hostWidget.setOption("showOffline", !root.hostWidget.showOffline, true)
+              }
+            }
+
+            SettingRow {
+              label: root.t("otherDevices")
+              hint: root.t("otherDevicesHint")
+              ToggleSwitch {
+                cursorRing: false
+                trackHeight: Style.space(18)
+                checked: !root.hostWidget || root.hostWidget.otherDevices
+                foreground: root.fg
+                onToggled: if (root.hostWidget) root.hostWidget.setOption("otherDevices", !root.hostWidget.otherDevices, true)
+              }
+            }
+
+            SettingRow {
+              label: root.t("access")
+              hint: root.accessMissing ? root.t("accessMissing") : root.t("accessGranted")
+              Button {
+                visible: root.accessMissing
+                text: root.hostWidget && root.hostWidget.allowing ? root.t("waitingPassword") : root.t("allowAccess")
+                iconText: "󰌋"
+                bordered: true
+                foreground: root.fg
+                fontFamily: root.font
+                enabled: !(root.hostWidget && root.hostWidget.allowing)
+                onClicked: if (root.hostWidget) root.hostWidget.allowAccess()
+              }
+            }
+          }
+
+          // ------------------------------------------------------------ main view
+          Column {
+            visible: !root.settingsOpen
+            width: parent.width
+            spacing: Style.space(10)
 
           // ------------------------------------------------------------ setup
           Rectangle {
@@ -210,7 +431,7 @@ Panel {
               Text {
                 width: parent.width
                 textFormat: Text.PlainText
-                text: "Not ready yet · step 1 of 1"
+                text: root.t("setupStep")
                 color: root.fg
                 font.family: root.font
                 font.pixelSize: Style.font.body
@@ -220,13 +441,13 @@ Panel {
                 width: parent.width
                 textFormat: Text.PlainText
                 wrapMode: Text.WordWrap
-                text: "Linux only lets root talk to the receivers. Allowing access installs one udev rule (the same one Solaar uses) that gives the logged-in user access to Logitech receivers and devices. You will be asked for your password once."
+                text: root.t("setupText")
                 color: root.dim
                 font.family: root.font
                 font.pixelSize: Style.font.caption
               }
               Button {
-                text: root.hostWidget && root.hostWidget.allowing ? "Waiting for password…" : "Allow access"
+                text: root.hostWidget && root.hostWidget.allowing ? root.t("waitingPassword") : root.t("allowAccess")
                 iconText: "󰌋"
                 bordered: true
                 foreground: root.fg
@@ -242,9 +463,9 @@ Panel {
             width: parent.width
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
-            text: root.phase === "none" ? "No Logitech receiver and no battery-powered Bluetooth device found."
-              : root.phase === "error" ? "Error: " + String(root.stats.error || "")
-              : String(root.stats.message || "")
+            text: root.phase === "none" ? root.t("noneText")
+              : root.phase === "error" ? root.t("error", [String(root.stats.error || "")])
+              : root.stats.message_code ? root.t(root.stats.message_code, root.stats.message_args || []) : ""
             color: root.phase === "none" ? root.dim : Color.urgent
             font.family: root.font
             font.pixelSize: Style.font.caption
@@ -252,7 +473,7 @@ Panel {
 
           // ------------------------------------------------------------ devices
           PanelSeparator { visible: root.devices.length > 0; width: parent.width; foreground: root.fg }
-          PanelSectionHeader { visible: root.devices.length > 0; text: "DEVICES"; foreground: root.fg; fontFamily: root.font }
+          PanelSectionHeader { visible: root.devices.length > 0; text: root.t("devices").toUpperCase(); foreground: root.fg; fontFamily: root.font }
 
           Repeater {
             model: root.devices.length
@@ -314,7 +535,7 @@ Panel {
                       width: parent.width
                       textFormat: Text.PlainText
                       elide: Text.ElideRight
-                      text: card.dev.name
+                      text: root.deviceName(card.dev)
                       color: card.dev.online ? root.fg : Qt.lighter(root.dim, 1.15)
                       font.family: root.font
                       font.pixelSize: Style.font.body
@@ -399,7 +620,7 @@ Panel {
                     Text {
                       id: dpiLabel
                       textFormat: Text.PlainText
-                      text: "Pointer speed (DPI)"
+                      text: root.t("dpi")
                       color: root.fg
                       font.family: root.font
                       font.pixelSize: Style.font.caption
@@ -407,7 +628,7 @@ Panel {
                     Text {
                       anchors.right: parent.right
                       textFormat: Text.PlainText
-                      text: Math.round(dpiSlider.liveValue) + (card.dev.dpi && Math.round(dpiSlider.liveValue) === card.dev.dpi.default ? " · default" : "")
+                      text: Math.round(dpiSlider.liveValue) + (card.dev.dpi && Math.round(dpiSlider.liveValue) === card.dev.dpi.default ? " · " + root.t("dpiDefault") : "")
                       color: root.fg
                       font.family: root.font
                       font.pixelSize: Style.font.caption
@@ -435,16 +656,16 @@ Panel {
                   spacing: Style.space(6)
                   Text {
                     textFormat: Text.PlainText
-                    text: "Scroll wheel mode"
+                    text: root.t("wheelMode")
                     color: root.fg
                     font.family: root.font
                     font.pixelSize: Style.font.caption
                   }
                   ButtonGroup {
                     options: [
-                      { value: "smartshift", label: "SmartShift", tooltip: "Ratchet that switches to free spin when you flick the wheel" },
-                      { value: "ratchet", label: "Ratchet", tooltip: "Always click by click" },
-                      { value: "freespin", label: "Free spin", tooltip: "Always spins freely" }
+                      { value: "smartshift", label: root.t("smartshift"), tooltip: root.t("smartshiftTip") },
+                      { value: "ratchet", label: root.t("ratchet"), tooltip: root.t("ratchetTip") },
+                      { value: "freespin", label: root.t("freespin"), tooltip: root.t("freespinTip") }
                     ]
                     value: card.dev.smartshift ? card.dev.smartshift.mode : ""
                     foreground: root.fg
@@ -461,7 +682,7 @@ Panel {
                       anchors.left: parent.left
                       anchors.verticalCenter: parent.verticalCenter
                       textFormat: Text.PlainText
-                      text: "Sensitivity"
+                      text: root.t("sensitivity")
                       color: root.dim
                       font.family: root.font
                       font.pixelSize: Style.font.caption
@@ -499,7 +720,7 @@ Panel {
                     width: parent.width
                     textFormat: Text.PlainText
                     wrapMode: Text.WordWrap
-                    text: "Lower sensitivity values switch to free spin with a gentler flick."
+                    text: root.t("sensitivityHint")
                     color: root.dim
                     font.family: root.font
                     font.pixelSize: Style.font.caption * 0.9
@@ -509,8 +730,8 @@ Panel {
                 // ---------------------------------------------- wheel
                 SettingRow {
                   visible: card.isOpen && !!card.dev.wheel
-                  label: "Natural scrolling"
-                  hint: "Content follows the wheel, like on a touchpad"
+                  label: root.t("natural")
+                  hint: root.t("naturalHint")
                   ToggleSwitch {
                     cursorRing: false
                     trackHeight: Style.space(18)
@@ -521,8 +742,8 @@ Panel {
                 }
                 SettingRow {
                   visible: card.isOpen && !!card.dev.wheel
-                  label: "High-resolution scrolling"
-                  hint: "Smoother, finer steps in apps that support it"
+                  label: root.t("hires")
+                  hint: root.t("hiresHint")
                   ToggleSwitch {
                     cursorRing: false
                     trackHeight: Style.space(18)
@@ -535,10 +756,8 @@ Panel {
                 // ---------------------------------------------- Fn keys
                 SettingRow {
                   visible: card.isOpen && !!card.dev.fnswap
-                  label: "Swap Fn keys"
-                  hint: card.dev.fnswap && card.dev.fnswap.on
-                    ? "On: top row gives media and special functions, hold Fn for F1–F12"
-                    : "Off: top row gives F1–F12, hold Fn for media and special functions"
+                  label: root.t("fnswap")
+                  hint: card.dev.fnswap && card.dev.fnswap.on ? root.t("fnswapOn") : root.t("fnswapOff")
                   ToggleSwitch {
                     cursorRing: false
                     trackHeight: Style.space(18)
@@ -553,7 +772,7 @@ Panel {
 
           // ------------------------------------------------------------ receivers
           PanelSeparator { visible: root.receivers.length > 0; width: parent.width; foreground: root.fg }
-          PanelSectionHeader { visible: root.receivers.length > 0; text: "RECEIVERS"; foreground: root.fg; fontFamily: root.font }
+          PanelSectionHeader { visible: root.receivers.length > 0; text: root.t("receivers").toUpperCase(); foreground: root.fg; fontFamily: root.font }
 
           Repeater {
             model: root.receivers.length
@@ -565,8 +784,8 @@ Panel {
                 var out = []
                 var ids = rec.devices || []
                 for (var i = 0; i < ids.length; i++)
-                  for (var j = 0; j < root.devices.length; j++)
-                    if (root.devices[j].id === ids[i]) out.push(root.devices[j].name)
+                  for (var j = 0; j < root.allDevices.length; j++)
+                    if (root.allDevices[j].id === ids[i]) out.push(root.deviceName(root.allDevices[j]))
                 return out
               }
               width: column.width
@@ -590,7 +809,7 @@ Panel {
                   width: parent.width
                   textFormat: Text.PlainText
                   elide: Text.ElideRight
-                  text: recRow.rec.name + "  ·  " + recRow.names.length + " of " + recRow.rec.max_devices + " slots used"
+                  text: root.connName(recRow.rec.family) + "  ·  " + root.t("slotsUsed", [recRow.names.length, recRow.rec.max_devices])
                   color: root.fg
                   font.family: root.font
                   font.pixelSize: Style.font.caption
@@ -599,7 +818,7 @@ Panel {
                   width: parent.width
                   textFormat: Text.PlainText
                   elide: Text.ElideRight
-                  text: recRow.names.length > 0 ? recRow.names.join(", ") : "No device paired"
+                  text: recRow.names.length > 0 ? recRow.names.join(", ") : root.t("noDevicePaired")
                   color: root.dim
                   font.family: root.font
                   font.pixelSize: Style.font.caption
@@ -614,13 +833,14 @@ Panel {
             width: parent.width
             spacing: Style.space(8)
             Button {
-              text: "Refresh"
+              text: root.t("refresh")
               iconText: "󰑐"
               bordered: true
               foreground: root.fg
               fontFamily: root.font
               onClicked: root.send({ cmd: "refresh" })
             }
+          }
           }
         }
       }
