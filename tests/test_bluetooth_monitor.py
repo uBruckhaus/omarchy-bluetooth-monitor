@@ -270,5 +270,41 @@ class Adapters(unittest.TestCase):
         self.assertIsNone(ld.adapter_of("x", []))
 
 
+class Limits(unittest.TestCase):
+    def test_flooding_node_is_drained_within_budget(self):
+        r, w = os.pipe()
+        try:
+            os.set_blocking(r, False)
+            node = ld.Node.__new__(ld.Node)
+            node.fd, node.events, node.path = r, [], "fake"
+            report = bytes([0x10, 1, 0x41, 0, 0, 0, 0])
+            for _ in range(ld.DRAIN_BUDGET + 100):  # more than one drain may read
+                os.write(w, report)
+            node._read = lambda timeout: os.read(r, 7) if True else None
+            node.drain()
+            self.assertEqual(len(node.events), ld.MAX_EVENTS)  # kept list is capped
+            self.assertTrue(os.read(r, 7))                      # budget left the rest unread
+        finally:
+            os.close(r)
+            os.close(w)
+
+    def test_run_bounded_caps_endless_output(self):
+        out = ld.run_bounded(["yes"], timeout=2, limit=5000)
+        self.assertEqual(len(out), 5000)
+
+    def test_run_bounded_gives_up_on_silent_child(self):
+        import time
+        start = time.monotonic()
+        self.assertEqual(ld.run_bounded(["sleep", "20"], timeout=0.5), "")
+        self.assertLess(time.monotonic() - start, 3)
+
+    def test_untrusted_names_are_plain_text(self):
+        dump = UPOWER_DUMP.replace("Magic Trackpad", '<img src="http://x/y.png">Pad\r\nX' + "A" * 200)
+        names = [d["name"] for d in ld.parse_upower(dump)]
+        for n in names:
+            self.assertFalse(set(n) & set("<>&\r\n"))
+            self.assertLessEqual(len(n), ld.MAX_NAME)
+
+
 if __name__ == "__main__":
     unittest.main()

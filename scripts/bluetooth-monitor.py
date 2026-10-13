@@ -83,6 +83,8 @@ VOLTAGE_CURVE = [(4186, 100), (4067, 90), (3989, 80), (3922, 70), (3859, 60), (3
                  (3778, 40), (3751, 30), (3717, 20), (3671, 10), (3646, 5), (3579, 2), (3500, 0)]
 
 SYSFS_HIDRAW = "/sys/class/hidraw"
+MAX_EVENTS = 256          # unsolicited reports kept per node between scans
+DRAIN_BUDGET = 512        # reports read per drain; a flooding device cannot stall the loop
 CLOSED_INTERVAL = 60.0
 OPEN_INTERVAL = 10.0
 MAX_NAME = 64
@@ -201,12 +203,16 @@ class Node:
         except BlockingIOError:
             return None
 
+    def note_event(self, data):
+        if len(self.events) < MAX_EVENTS:
+            self.events.append(data)
+
     def drain(self):
-        while True:
+        for _ in range(DRAIN_BUDGET):
             data = self._read(0)
             if not data:
                 return
-            self.events.append(data)
+            self.note_event(data)
 
     def request(self, dev, b2, b3, params=b"", long=False, timeout=1.5, echo=None):
         """Send [report, dev, b2, b3, params] and return the reply's payload (bytes 4..)."""
@@ -225,10 +231,10 @@ class Node:
             r = self._read(left)
             if not r or len(r) < 7 or r[0] not in (SHORT, LONG):
                 if r:
-                    self.events.append(r)
+                    self.note_event(r)
                 continue
             if r[1] != dev and r[1] != dev ^ 0xFF:
-                self.events.append(r)
+                self.note_event(r)
                 continue
             if r[2] == 0x8F and r[3] == b2 and r[4] == b3:
                 raise HidppError(r[5])
@@ -238,7 +244,7 @@ class Node:
                 if echo is not None and r[4] != echo:
                     continue
                 return r[4:]
-            self.events.append(r)
+            self.note_event(r)
 
 
 class Receiver:
@@ -598,12 +604,34 @@ MAX_DUMP = 512 * 1024
 
 
 def run_bounded(argv, timeout=3.0, limit=MAX_DUMP):
+    """stdout of argv, read with one overall deadline and a byte cap; the child is
+    killed when either runs out, so nothing beyond `limit` is ever buffered."""
     try:
-        p = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                           stdin=subprocess.DEVNULL, timeout=timeout, check=False)
-    except (OSError, subprocess.SubprocessError):
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                stdin=subprocess.DEVNULL, preexec_fn=die_with_parent)
+    except OSError:
         return ""
-    return p.stdout[:limit].decode("utf-8", "replace")
+    out = bytearray()
+    deadline = time.monotonic() + timeout
+    fd = proc.stdout.fileno()
+    try:
+        while len(out) < limit:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            r, _, _ = select.select([fd], [], [], left)
+            if not r:
+                break
+            chunk = os.read(fd, min(65536, limit - len(out)))
+            if not chunk:
+                break
+            out += chunk
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        proc.stdout.close()
+    return bytes(out).decode("utf-8", "replace")
 
 
 def parse_upower(text):
