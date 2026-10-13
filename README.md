@@ -1,9 +1,11 @@
 # Logitech Devices (Omarchy plugin)
 
 Bar widget for Logitech mice and keyboards on Unifying, Bolt, Nano and Lightspeed
-receivers, Bluetooth or cable. The bar shows a mouse glyph with the lowest battery of
-the connected devices (urgent colour below 15 %); the panel lists every paired device
-and every receiver with its free slots.
+receivers, Bluetooth or cable. The bar icon is green while every connected battery is
+fine, orange when one drops to 25 % or less and red at 10 % or less (charging devices
+don't count). The icon shows which device is low: a keyboard glyph when the keyboard is
+lower, otherwise a mouse (also on a tie). The panel lists every paired device and every
+receiver with its free slots.
 
 Per device, when the hardware supports it:
 

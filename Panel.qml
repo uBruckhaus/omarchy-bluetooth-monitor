@@ -64,12 +64,13 @@ Panel {
     var icons = ["󰂎", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"]
     return icons[Math.max(0, Math.min(10, Math.round(p / 10)))]
   }
+  // Same thresholds and colours as the bar icon.
   function batteryColor(b) {
     if (!b) return root.dim
     if (b.charging) return root.green
-    if (b.percent !== null && b.percent !== undefined && b.percent <= 15) return Color.urgent
-    if (b.level === "critical" || b.level === "low") return Color.urgent
-    return root.fg
+    if (!root.hostWidget) return root.fg
+    var s = root.hostWidget.batteryState(b)
+    return s === "ok" ? root.fg : root.hostWidget.stateColor(s)
   }
   function statusLine(dev) {
     var where = dev.connection + (dev.slot ? " · slot " + dev.slot : "")

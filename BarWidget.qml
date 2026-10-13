@@ -5,8 +5,10 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui as Ui
 
-// Bar indicator for Logitech mice and keyboards: a mouse glyph with the lowest battery
-// among connected devices. Turns urgent below 15 % (unless charging), dim while no
+// Bar indicator for Logitech mice and keyboards: a mouse glyph in the theme's green
+// while every connected battery is fine, orange when one runs low (25 % or less) and
+// red when one is critical (10 % or less); charging devices don't count. The glyph
+// switches to the device running low (keyboard, ...); mouse on a tie. Dim while no
 // device is connected. Left click opens the panel; right click refreshes. All device
 // traffic goes through scripts/logitech-devices.py (HID++ over /dev/hidraw), which
 // receives JSON commands on stdin and streams JSON snapshots on stdout.
@@ -18,14 +20,62 @@ Ui.BarWidget {
   // Push every snapshot into the panel; never let it read from an older widget instance.
   onStatsChanged: if (panelLoader.item && "stats" in panelLoader.item) panelLoader.item.stats = root.stats
   readonly property var devices: stats.devices || []
-  readonly property var lowest: stats.lowest || null
   readonly property int onlineCount: {
     var n = 0
     for (var i = 0; i < devices.length; i++) if (devices[i].online) n++
     return n
   }
-  readonly property bool low: lowest !== null && lowest.percent <= 15 && !lowest.charging
-  readonly property bool showPercent: root.setting("showPercent", true) !== false
+  // "ok" | "low" | "critical" for one device's battery (percent if known, else its level).
+  function batteryState(b) {
+    if (!b || b.charging) return "ok"
+    var p = b.percent
+    if (p !== null && p !== undefined) return p <= 10 ? "critical" : (p <= 25 ? "low" : "ok")
+    return b.level === "critical" || b.level === "empty" ? "critical" : (b.level === "low" ? "low" : "ok")
+  }
+  // The worst state among connected devices, and which device kind it belongs to. On a
+  // tie (or while all is fine) a mouse wins, so the icon stays a mouse unless a
+  // keyboard (or another device) is lower.
+  readonly property var batteryAlert: {
+    var rank = { ok: 0, low: 1, critical: 2 }
+    var best = { state: "ok", kind: "mouse" }
+    for (var i = 0; i < devices.length; i++) {
+      if (!devices[i].online) continue
+      var s = batteryState(devices[i].battery)
+      if (rank[s] > rank[best.state] || (rank[s] === rank[best.state] && rank[s] > 0 && devices[i].kind === "mouse"))
+        best = { state: s, kind: devices[i].kind }
+    }
+    return best
+  }
+  function kindGlyph(kind) {
+    switch (kind) {
+    case "keyboard": return "󰌌"
+    case "numpad": return "󰎠"
+    case "touchpad": return "󰟸"
+    case "headset": return "󰋋"
+    case "presenter": return "󰐯"
+    case "gamepad": case "joystick": return "󰊴"
+    default: return "󰍽"
+    }
+  }
+  function stateColor(s) { return s === "critical" ? root.red : (s === "low" ? root.orange : root.green) }
+
+  // Theme colours (colors.toml), like the other status indicators in the bar.
+  property color green: "#66c98b"
+  property color orange: "#f0a35e"
+  property color red: Color.urgent
+  FileView {
+    path: (Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state") + "/omarchy/current/theme/colors.toml"
+    watchChanges: true
+    onFileChanged: reload()
+    onLoaded: {
+      var t = text()
+      function pick(name) { var m = t.match(new RegExp("^\\s*" + name + "\\s*=\\s*\"(#[0-9a-fA-F]{6})\"", "m")); return m ? m[1] : "" }
+      if (pick("green")) root.green = pick("green")
+      if (pick("orange")) root.orange = pick("orange")
+      else if (pick("yellow")) root.orange = pick("yellow")
+      if (pick("red")) root.red = pick("red")
+    }
+  }
   readonly property string scriptDir: Qt.resolvedUrl("scripts").toString().replace(/^file:\/\//, "")
   property bool allowing: false
 
@@ -113,9 +163,9 @@ Ui.BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: "󰍽" + (root.showPercent && root.lowest ? " " + root.lowest.percent + "%" : "")
+    text: root.kindGlyph(root.batteryAlert.kind)
     dimmed: root.onlineCount === 0
-    foreground: root.low ? Color.urgent : (root.bar ? root.bar.barForeground : Color.foreground)
+    foreground: root.onlineCount === 0 ? (root.bar ? root.bar.barForeground : Color.foreground) : root.stateColor(root.batteryAlert.state)
     tooltipText: root.opened ? "" : root.summary
     onPressed: function(code) {
       if (code === Qt.LeftButton) root.toggle()
