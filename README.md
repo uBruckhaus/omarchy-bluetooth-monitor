@@ -37,7 +37,7 @@ The gear in the panel opens the settings page (back with the button, Backspace o
   Italiano, Português, Nederlands, Polski
 - **Low / critical battery warning**: when the bar icon turns orange / red
   (25 % and 10 % by default)
-- **Show switched-off devices**
+- (Switched-off devices: eye button in the panel header, hidden by default)
 - **Other Bluetooth devices**: trackpads, earphones, controllers from UPower
 - **Receiver access**: whether the udev rule is in place, with the Allow button
 

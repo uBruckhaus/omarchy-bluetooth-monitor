@@ -27,7 +27,6 @@ Ui.BarWidget {
   function tn(key, n, args) { return I18n.trn(lang, key, n, args) }
   readonly property int lowAt: Number(root.setting("lowAt", 25))
   readonly property int criticalAt: Number(root.setting("criticalAt", 10))
-  readonly property bool showOffline: root.setting("showOffline", true) !== false
   readonly property bool otherDevices: root.setting("otherDevices", true) !== false
   // value === defaultValue removes the key, so shell.json only holds real choices.
   function setOption(key, value, defaultValue) {
@@ -125,8 +124,8 @@ Ui.BarWidget {
     var lines = ["Bluetooth Monitor"]
     for (var i = 0; i < devices.length; i++) {
       var d = devices[i]
-      if (!d.online && !root.showOffline) continue
-      lines.push((d.online ? "● " : "○ ") + deviceName(d) + (d.online ? (d.battery ? "  " + batteryText(d) : "") : "  · " + t("off")))
+      if (!d.online) continue  // the panel's eye button shows switched-off devices
+      lines.push("● " + deviceName(d) + (d.battery ? "  " + batteryText(d) : ""))
     }
     return lines.join("\n")
   }

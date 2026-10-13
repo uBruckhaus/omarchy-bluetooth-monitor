@@ -22,11 +22,11 @@ Panel {
   property var stats: ({})  // pushed by BarWidget on every snapshot
   readonly property string phase: String(stats.phase || "starting")
   readonly property var allDevices: stats.devices || []
-  // Switched-off devices only when the setting asks for them.
-  readonly property var devices: {
-    if (!hostWidget || hostWidget.showOffline) return allDevices
-    return allDevices.filter(function(d) { return d.online })
-  }
+  // Only connected devices by default; the eye button in the header shows the
+  // switched-off ones too (like Launch & Bind's hidden apps) until the panel closes.
+  property bool showInactive: false
+  readonly property var devices: showInactive ? allDevices : allDevices.filter(function(d) { return d.online })
+  readonly property int inactiveCount: allDevices.length - allDevices.filter(function(d) { return d.online }).length
   readonly property var receivers: stats.receivers || []
   property var expanded: ({})   // device id -> true while its settings are shown
   property bool settingsOpen: false
@@ -114,6 +114,7 @@ Panel {
       var rec = receivers[r]
       seen[rec.family] = (seen[rec.family] || 0) + 1
       var devs = devices.filter(function(d) { return d.receiver === rec.id })
+      if (!devs.length && !showInactive) continue
       var paired = allDevices.filter(function(d) { return d.receiver === rec.id }).length
       out.push({ type: "dongle", label: connName(rec.family) + (perFamily[rec.family] > 1 ? " " + seen[rec.family] : ""),
                  sub: t("dongleSub", [paired, rec.max_devices]), devices: devs,
@@ -145,7 +146,7 @@ Panel {
   }
 
   function open() { root.controller.show() }
-  function close() { root.controller.hide(); root.settingsOpen = false }
+  function close() { root.controller.hide(); root.settingsOpen = false; root.showInactive = false }
   function toggle() { if (root.opened) root.close(); else root.open() }
 
   // The theme's green (colors.toml) for charging batteries, like the bar's running indicators.
@@ -248,13 +249,34 @@ Panel {
               // row so it lines up with the detail pill.
               Item {
                 visible: !root.settingsOpen
-                implicitWidth: gearButton.width
+                implicitWidth: eyeButton.width + Style.space(6) + gearButton.width
                 implicitHeight: heroTitle.implicitHeight + Style.space(2) + heroMeta.implicitHeight
                 Text { id: heroTitle; visible: false; textFormat: Text.PlainText; text: "W"; font.family: root.font; font.pixelSize: Style.font.title; font.bold: true }
                 Text { id: heroBody; visible: false; textFormat: Text.PlainText; text: "W"; font.family: root.font; font.pixelSize: Style.font.body; font.bold: true }
                 Text { id: heroMeta; visible: false; textFormat: Text.PlainText; text: "W"; font.family: root.font; font.pixelSize: Style.font.caption; font.bold: true }
+                // Eye: show / hide switched-off devices; the count says how many are hidden.
+                Button {
+                  id: eyeButton
+                  visible: root.inactiveCount > 0 || root.showInactive
+                  width: visible ? implicitWidth : -Style.space(6)
+                  y: Math.round((heroTitle.implicitHeight - height) / 2)
+                  height: heroBody.implicitHeight + Style.space(4)
+                  iconText: root.showInactive ? "󰈉" : "󰈈"
+                  text: root.showInactive ? "" : String(root.inactiveCount)
+                  selected: root.showInactive
+                  bordered: true
+                  iconSize: Style.font.body
+                  fontSize: Style.font.caption
+                  horizontalPadding: Style.space(5)
+                  verticalPadding: Style.space(1)
+                  foreground: root.fg
+                  fontFamily: root.font
+                  tooltipText: root.showInactive ? root.t("hideOff") : root.t("showOff", [root.inactiveCount])
+                  onClicked: root.showInactive = !root.showInactive
+                }
                 Button {
                   id: gearButton
+                  x: eyeButton.width + Style.space(6)
                   y: Math.round((heroTitle.implicitHeight - height) / 2)
                   // The pill is its body text plus Style.space(4); a square gear of that height.
                   height: heroBody.implicitHeight + Style.space(4)
@@ -410,16 +432,6 @@ Panel {
               }
             }
 
-            SettingRow {
-              label: root.t("showOffline")
-              ToggleSwitch {
-                cursorRing: false
-                trackHeight: Style.space(18)
-                checked: !root.hostWidget || root.hostWidget.showOffline
-                foreground: root.fg
-                onToggled: if (root.hostWidget) root.hostWidget.setOption("showOffline", !root.hostWidget.showOffline, true)
-              }
-            }
 
             SettingRow {
               label: root.t("otherDevices")
