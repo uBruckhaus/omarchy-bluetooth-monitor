@@ -12,11 +12,11 @@ import "I18n.js" as I18n
 // 10 % by default); charging devices don't count. The glyph switches to the device
 // running low (keyboard, trackpad, earphones, ...); mouse on a tie. Dim while no device
 // is connected. Left click opens the panel; right click refreshes. All device
-// traffic goes through scripts/logitech-devices.py (HID++ over /dev/hidraw), which
+// traffic goes through scripts/bluetooth-monitor.py (HID++ over /dev/hidraw), which
 // receives JSON commands on stdin and streams JSON snapshots on stdout.
 Ui.BarWidget {
   id: root
-  moduleName: "ubruckhaus.logitech-devices"
+  moduleName: "ubruckhaus.bluetooth-monitor"
 
   // Interface language: the system's unless one is picked in the panel's settings.
   // Options live in this widget's own shell.json entry, like the language.
@@ -120,9 +120,9 @@ Ui.BarWidget {
   function deviceName(d) { return d.name || t("unnamed") }
 
   readonly property string summary: {
-    if (stats.phase === "permission") return "Logitech Devices\n" + t("tipAccess")
-    if (stats.phase === "none") return "Logitech Devices\n" + t("tipNone")
-    var lines = ["Logitech Devices"]
+    if (stats.phase === "permission") return "Bluetooth Monitor\n" + t("tipAccess")
+    if (stats.phase === "none") return "Bluetooth Monitor\n" + t("tipNone")
+    var lines = ["Bluetooth Monitor"]
     for (var i = 0; i < devices.length; i++) {
       var d = devices[i]
       if (!d.online && !root.showOffline) continue
@@ -149,7 +149,7 @@ Ui.BarWidget {
 
   Process {
     id: helper
-    command: ["python3", root.scriptDir + "/logitech-devices.py"]
+    command: ["python3", root.scriptDir + "/bluetooth-monitor.py"]
     running: true
     stdinEnabled: true
     stdout: SplitParser {

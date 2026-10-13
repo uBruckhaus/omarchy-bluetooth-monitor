@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "id": "ubruckhaus.logitech-devices",
-  "name": "Logitech Devices",
-  "version": "0.1.0",
+  "id": "ubruckhaus.bluetooth-monitor",
+  "name": "Bluetooth Monitor",
+  "version": "0.2.0",
   "author": "uBruckhaus",
-  "description": "Logitech mice and keyboards on Unifying, Bolt, Nano and Lightspeed receivers or Bluetooth: battery levels in the bar, DPI, SmartShift, scroll wheel and Fn keys in a panel. Talks HID++ directly, no Solaar needed.",
+  "description": "Every wireless mouse, keyboard, trackpad, earphone and controller at a glance: battery levels and how each one is connected (Bluetooth or USB dongle) in one picture. The bar icon turns orange or red and shows which device runs low. Logitech Unifying and Bolt devices also get DPI, SmartShift, scrolling and Fn-key settings, no Solaar needed.",
   "kinds": [
     "bar-widget"
   ],
@@ -12,8 +12,8 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Logitech Devices",
-    "description": "Battery and settings of Logitech mice and keyboards",
+    "displayName": "Bluetooth Monitor",
+    "description": "Batteries and connections of your wireless devices",
     "category": "System",
     "defaultSection": "right",
     "allowMultiple": false

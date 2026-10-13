@@ -13,7 +13,7 @@ import "I18n.js" as I18n
 // index, so a refresh never rebuilds rows (a slider drag survives every snapshot).
 Panel {
   id: root
-  moduleName: "ubruckhaus.logitech-devices"
+  moduleName: "ubruckhaus.bluetooth-monitor"
   manageIpc: false
 
   property var anchorItem: null
@@ -95,12 +95,53 @@ Panel {
     return s === "ok" ? root.fg : root.hostWidget.stateColor(s)
   }
   function statusLine(dev) {
-    var where = connName(dev.connection) + (dev.slot ? " · " + t("slotN", [dev.slot]) : "")
+    var where = linkIcon(dev.receiver ? "dongle" : dev.connection) + " " + connName(dev.connection) + (dev.slot ? " · " + t("slotN", [dev.slot]) : "")
     if (!dev.online) return where + " · " + t("notConnected")
     var b = dev.battery
     if (b && b.charging) return where + " · " + t("charging")
     if (b && b.status === "full" && b.external_power) return where + " · " + t("charged")
     return where
+  }
+
+  // Links for the connection tree: every dongle (numbered when there are several of a
+  // kind), then the Bluetooth adapter, USB cable and other wireless devices.
+  readonly property var links: {
+    var out = []
+    var perFamily = {}
+    for (var i = 0; i < receivers.length; i++) perFamily[receivers[i].family] = (perFamily[receivers[i].family] || 0) + 1
+    var seen = {}
+    for (var r = 0; r < receivers.length; r++) {
+      var rec = receivers[r]
+      seen[rec.family] = (seen[rec.family] || 0) + 1
+      var devs = devices.filter(function(d) { return d.receiver === rec.id })
+      var paired = allDevices.filter(function(d) { return d.receiver === rec.id }).length
+      out.push({ type: "dongle", label: connName(rec.family) + (perFamily[rec.family] > 1 ? " " + seen[rec.family] : ""),
+                 sub: t("dongleSub", [paired, rec.max_devices]), devices: devs,
+                 online: devs.filter(function(d) { return d.online }).length })
+    }
+    var groups = [["bluetooth", t("btAdapter")], ["usb", connName("usb")], ["wireless", connName("wireless")]]
+    for (var g = 0; g < groups.length; g++) {
+      var code = groups[g][0]
+      var list = devices.filter(function(d) { return !d.receiver && d.connection === code })
+      if (list.length) out.push({ type: code, label: groups[g][1], sub: "", devices: list,
+                                  online: list.filter(function(d) { return d.online }).length })
+    }
+    return out
+  }
+  function linkIcon(type) {
+    switch (type) {
+    case "dongle": return "󰕓"
+    case "bluetooth": return "󰂯"
+    case "usb": return "󰌘"
+    default: return "󰖩"
+    }
+  }
+  readonly property real nodeSize: Style.space(30)
+  readonly property real linkLabelWidth: Style.space(118)
+  property string hostName: ""
+  FileView {
+    path: "/etc/hostname"
+    onLoaded: root.hostName = text().trim().slice(0, 40)
   }
 
   function open() { root.controller.show() }
@@ -197,7 +238,7 @@ Panel {
           PanelHero {
             foreground: root.fg
             fontFamily: root.font
-            title: "Logitech Devices"
+            title: "Bluetooth Monitor"
             meta: root.phase === "ok"
               ? root.t("connectedOf", [root.onlineCount(), root.allDevices.length]) + (root.receivers.length ? " · " + root.tn("receiversN", root.receivers.length, [root.receivers.length]) : "")
               : root.phase === "permission" ? root.t("accessNeeded") : root.phase === "none" ? root.t("nothingFound") : root.t("looking")
@@ -469,6 +510,214 @@ Panel {
             color: root.phase === "none" ? root.dim : Color.urgent
             font.family: root.font
             font.pixelSize: Style.font.caption
+          }
+
+          // ------------------------------------------------------------ connections
+          // A tree: this PC, then every link (dongle, Bluetooth adapter, cable) on a solid
+          // line (plugged in), then its devices on a dotted line (radio) with their battery.
+          PanelSeparator { visible: root.links.length > 0; width: parent.width; foreground: root.fg }
+          PanelSectionHeader { visible: root.links.length > 0; text: root.t("connections").toUpperCase(); foreground: root.fg; fontFamily: root.font }
+
+          Item {
+            visible: root.links.length > 0
+            width: parent.width
+            height: pcRow.height
+            Rectangle {
+              id: pcBadge
+              width: root.nodeSize; height: width
+              radius: Style.cornerRadius > 0 ? width / 2 : 0
+              color: Color.accent
+              Text {
+                anchors.centerIn: parent
+                textFormat: Text.PlainText
+                text: "󰍹"
+                color: Color.background
+                font.family: root.font
+                font.pixelSize: Style.font.body
+              }
+            }
+            Row {
+              id: pcRow
+              x: pcBadge.width + Style.space(10)
+              height: pcBadge.height
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: root.t("thisPc") + (root.hostName ? "  ·  " + root.hostName : "")
+                color: root.fg
+                font.family: root.font
+                font.pixelSize: Style.font.caption
+                font.bold: true
+              }
+            }
+          }
+
+          Repeater {
+            model: root.links.length
+            delegate: Item {
+              id: linkRow
+              required property int index
+              readonly property var link: root.links[index] || ({ devices: [] })
+              readonly property bool last: index === root.links.length - 1
+              readonly property bool live: link.online > 0
+              readonly property color lineColor: live ? Color.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.25)
+              readonly property real trunkX: root.nodeSize / 2 - 1
+              readonly property real badgeX: root.nodeSize + Style.space(8)
+              width: column.width
+              height: Math.max(linkHead.height, chips.height) + Style.space(10)
+
+              // Trunk from the PC down to this link (and on to the next one).
+              Rectangle {
+                x: linkRow.trunkX
+                y: -column.spacing
+                width: 2
+                height: (linkRow.last ? linkHead.height / 2 : linkRow.height) + column.spacing
+                color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.25)
+              }
+              // Solid branch: the dongle / adapter is plugged into this PC.
+              Rectangle {
+                x: linkRow.trunkX
+                y: linkHead.height / 2 - 1
+                width: linkRow.badgeX - linkRow.trunkX
+                height: 2
+                color: linkRow.lineColor
+              }
+
+              Row {
+                id: linkHead
+                x: linkRow.badgeX
+                spacing: Style.space(8)
+                Rectangle {
+                  id: linkBadge
+                  width: root.nodeSize; height: width
+                  radius: Style.cornerRadius > 0 ? Style.space(6) : 0
+                  color: linkRow.live ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.2) : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.06)
+                  border.width: 1
+                  border.color: linkRow.lineColor
+                  Text {
+                    anchors.centerIn: parent
+                    textFormat: Text.PlainText
+                    text: root.linkIcon(linkRow.link.type)
+                    color: linkRow.live ? root.fg : root.dim
+                    font.family: root.font
+                    font.pixelSize: Style.font.body
+                  }
+                }
+                Column {
+                  anchors.verticalCenter: linkBadge.verticalCenter
+                  width: root.linkLabelWidth
+                  Text {
+                    width: parent.width
+                    textFormat: Text.PlainText
+                    elide: Text.ElideRight
+                    text: linkRow.link.label
+                    color: linkRow.live ? root.fg : root.dim
+                    font.family: root.font
+                    font.pixelSize: Style.font.caption
+                    font.bold: true
+                  }
+                  Text {
+                    visible: text !== ""
+                    width: parent.width
+                    textFormat: Text.PlainText
+                    elide: Text.ElideRight
+                    text: linkRow.link.sub
+                    color: root.dim
+                    font.family: root.font
+                    font.pixelSize: Style.font.caption * 0.85
+                  }
+                }
+              }
+
+              // Devices hang off the link on dotted lines: they talk to it by radio.
+              Column {
+                id: chips
+                x: linkRow.badgeX + root.nodeSize + Style.space(8) + root.linkLabelWidth + Style.space(6)
+                width: linkRow.width - x
+                spacing: Style.space(4)
+                Repeater {
+                  model: linkRow.link.devices.length
+                  delegate: Item {
+                    id: chip
+                    required property int index
+                    readonly property var dev: linkRow.link.devices[index] || ({})
+                    width: chips.width
+                    height: chipBox.height
+                    // Dotted radio line from the link to the device.
+                    Row {
+                      id: dots
+                      anchors.verticalCenter: parent.verticalCenter
+                      spacing: Style.space(3)
+                      Repeater {
+                        model: 4
+                        delegate: Rectangle {
+                          width: Style.space(3); height: width; radius: width / 2
+                          color: chip.dev.online ? Color.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.25)
+                        }
+                      }
+                    }
+                    Rectangle {
+                      id: chipBox
+                      x: dots.width + Style.space(4)
+                      width: parent.width - x
+                      height: chipRow.implicitHeight + Style.space(8)
+                      radius: Style.cornerRadius > 0 ? height / 2 : 0
+                      color: chip.dev.online ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.12) : "transparent"
+                      border.width: 1
+                      border.color: chip.dev.online ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.45) : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.12)
+                      Row {
+                        id: chipRow
+                        x: Style.space(8)
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width - Style.space(16)
+                        spacing: Style.space(6)
+                        Text {
+                          id: chipIcon
+                          anchors.verticalCenter: parent.verticalCenter
+                          textFormat: Text.PlainText
+                          text: root.kindIcon(chip.dev.kind)
+                          color: chip.dev.online ? root.fg : root.dim
+                          font.family: root.font
+                          font.pixelSize: Style.font.caption
+                        }
+                        Text {
+                          anchors.verticalCenter: parent.verticalCenter
+                          width: parent.width - chipIcon.width - chipBattery.width - 2 * parent.spacing
+                          textFormat: Text.PlainText
+                          elide: Text.ElideRight
+                          text: root.deviceName(chip.dev)
+                          color: chip.dev.online ? root.fg : root.dim
+                          font.family: root.font
+                          font.pixelSize: Style.font.caption
+                        }
+                        Text {
+                          id: chipBattery
+                          anchors.verticalCenter: parent.verticalCenter
+                          textFormat: Text.PlainText
+                          text: !chip.dev.online ? root.t("deviceOff")
+                            : chip.dev.battery ? root.batteryIcon(chip.dev.battery) + " " + (chip.dev.battery.percent !== null && chip.dev.battery.percent !== undefined ? chip.dev.battery.percent + "%" : chip.dev.battery.level) : ""
+                          color: chip.dev.online ? root.batteryColor(chip.dev.battery) : root.dim
+                          font.family: root.font
+                          font.pixelSize: Style.font.caption
+                          font.bold: chip.dev.online
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          Text {
+            visible: root.links.length > 0
+            width: parent.width
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            text: root.t("radioHint")
+            color: root.dim
+            font.family: root.font
+            font.pixelSize: Style.font.caption * 0.85
           }
 
           // ------------------------------------------------------------ devices
@@ -765,63 +1014,6 @@ Panel {
                     foreground: root.fg
                     onToggled: root.set(card.dev, "fnswap", !(card.dev.fnswap && card.dev.fnswap.on))
                   }
-                }
-              }
-            }
-          }
-
-          // ------------------------------------------------------------ receivers
-          PanelSeparator { visible: root.receivers.length > 0; width: parent.width; foreground: root.fg }
-          PanelSectionHeader { visible: root.receivers.length > 0; text: root.t("receivers").toUpperCase(); foreground: root.fg; fontFamily: root.font }
-
-          Repeater {
-            model: root.receivers.length
-            delegate: Item {
-              id: recRow
-              required property int index
-              readonly property var rec: root.receiverAt(index)
-              readonly property var names: {
-                var out = []
-                var ids = rec.devices || []
-                for (var i = 0; i < ids.length; i++)
-                  for (var j = 0; j < root.allDevices.length; j++)
-                    if (root.allDevices[j].id === ids[i]) out.push(root.deviceName(root.allDevices[j]))
-                return out
-              }
-              width: column.width
-              height: recColumn.implicitHeight
-              Text {
-                id: recIcon
-                anchors.left: parent.left
-                anchors.top: parent.top
-                textFormat: Text.PlainText
-                text: "󰕓"
-                color: recRow.names.length > 0 ? root.fg : root.dim
-                font.family: root.font
-                font.pixelSize: Style.font.body * 1.1
-              }
-              Column {
-                id: recColumn
-                anchors.left: recIcon.right
-                anchors.leftMargin: Style.space(10)
-                anchors.right: parent.right
-                Text {
-                  width: parent.width
-                  textFormat: Text.PlainText
-                  elide: Text.ElideRight
-                  text: root.connName(recRow.rec.family) + "  ·  " + root.t("slotsUsed", [recRow.names.length, recRow.rec.max_devices])
-                  color: root.fg
-                  font.family: root.font
-                  font.pixelSize: Style.font.caption
-                }
-                Text {
-                  width: parent.width
-                  textFormat: Text.PlainText
-                  elide: Text.ElideRight
-                  text: recRow.names.length > 0 ? recRow.names.join(", ") : root.t("noDevicePaired")
-                  color: root.dim
-                  font.family: root.font
-                  font.pixelSize: Style.font.caption
                 }
               }
             }

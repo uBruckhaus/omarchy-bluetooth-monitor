@@ -18,7 +18,7 @@ come from UPower (`upower --dump`, refreshed on `upower --monitor` events): batt
 only, no settings.
 
 Settings changed from the panel are remembered per device (~/.config/omarchy/
-logitech-devices/settings.json) and written again when the device reconnects,
+bluetooth-monitor/settings.json) and written again when the device reconnects,
 because some devices forget them when they power off.
 """
 
@@ -109,7 +109,7 @@ def clean(text, limit=MAX_NAME):
 
 def config_dir():
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-    return os.path.join(base, "omarchy", "logitech-devices")
+    return os.path.join(base, "omarchy", "bluetooth-monitor")
 
 
 # ---------------------------------------------------------------------------- discovery
