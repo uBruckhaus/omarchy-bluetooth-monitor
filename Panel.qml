@@ -45,14 +45,19 @@ Panel {
 
   function kindIcon(kind) {
     switch (kind) {
+    case "mouse": case "trackball": return "󰍽"
     case "keyboard": return "󰌌"
-    case "mouse": return "󰍽"
-    case "trackball": return "󰍽"
-    case "touchpad": return "󰟸"
     case "numpad": return "󰎠"
-    case "presenter": return "󰐯"
+    case "touchpad": return "󰟸"
     case "headset": return "󰋋"
+    case "speaker": return "󰓃"
+    case "presenter": return "󰐯"
+    case "remote": return "󰑔"
     case "gamepad": case "joystick": return "󰊴"
+    case "tablet": case "pen": return "󰏪"
+    case "phone": return "󰏲"
+    case "wearable": return "󰖉"
+    case "camera": return "󰄀"
     default: return "󰗊"
     }
   }
@@ -237,7 +242,7 @@ Panel {
             width: parent.width
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
-            text: root.phase === "none" ? "No Logitech receiver or device is plugged in."
+            text: root.phase === "none" ? "No Logitech receiver and no battery-powered Bluetooth device found."
               : root.phase === "error" ? "Error: " + String(root.stats.error || "")
               : String(root.stats.message || "")
             color: root.phase === "none" ? root.dim : Color.urgent

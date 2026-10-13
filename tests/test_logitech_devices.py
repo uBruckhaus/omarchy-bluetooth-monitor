@@ -144,5 +144,91 @@ class Protocol(unittest.TestCase):
                 self.assertEqual(json.load(f), {"b042": {"dpi": 1600}})
 
 
+UPOWER_DUMP = """Device: /org/freedesktop/UPower/devices/battery_BAT0
+  native-path:          BAT0
+  power supply:         yes
+  battery
+    present:             yes
+    state:               discharging
+    percentage:          80%
+
+Device: /org/freedesktop/UPower/devices/touchpad_dev_AA_BB_CC_DD_EE_FF
+  native-path:          /org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF
+  model:                Magic Trackpad
+  power supply:         no
+  touchpad
+    present:             yes
+    state:               discharging
+    warning-level:       none
+    percentage:          22%
+
+Device: /org/freedesktop/UPower/devices/headphones_dev_11_22_33_44_55_66
+  native-path:          /org/bluez/hci0/dev_11_22_33_44_55_66
+  model:                <b>Galaxy Buds</b>
+  power supply:         no
+  headphones
+    present:             yes
+    state:               charging
+    percentage:          60%
+
+Device: /org/freedesktop/UPower/devices/mouse_hidpp_battery_0
+  native-path:          hidpp_battery_0
+  model:                MX Master 4
+  mouse
+    present:             yes
+    percentage:          100%
+
+Device: /org/freedesktop/UPower/devices/mouse_hid_aa_bb_cc_dd_ee_01_battery
+  native-path:          hid-aa:bb:cc:dd:ee:01-battery
+  model:                MX Master 4
+  mouse
+    present:             yes
+    state:               discharging
+    percentage:          99%
+
+Device: /org/freedesktop/UPower/devices/gaming_input_dev_3C
+  native-path:          /org/bluez/hci0/dev_3C
+  model:                Xbox Wireless Controller
+  gaming-input
+    present:             yes
+    state:               discharging
+    battery-level:       low
+    percentage:          10%
+
+Device: /org/freedesktop/UPower/devices/DisplayDevice
+  power supply:         no
+  unknown
+    percentage:          0%
+
+Daemon:
+  daemon-version:  1.91.3
+"""
+
+
+class UPower(unittest.TestCase):
+    def test_parse_peripherals(self):
+        devs = {d["name"]: d for d in ld.parse_upower(UPOWER_DUMP)}
+        self.assertNotIn("BAT0", str(devs))            # laptop battery skipped
+        pad = devs["Magic Trackpad"]
+        self.assertEqual((pad["kind"], pad["battery"]["percent"], pad["connection"]), ("touchpad", 22, "Bluetooth"))
+        buds = devs["bGalaxy Buds/b"]
+        self.assertEqual(buds["kind"], "headset")
+        self.assertTrue(buds["battery"]["charging"])
+        pad_level = devs["Xbox Wireless Controller"]["battery"]
+        self.assertEqual((pad_level["level"], pad_level["percent"]), ("low", 10))
+        # hidpp_battery entries are skipped; the hid-<mac>-battery one is Bluetooth
+        self.assertEqual(devs["MX Master 4"]["connection"], "Bluetooth")
+        self.assertEqual(sum(1 for d in ld.parse_upower(UPOWER_DUMP) if d["name"] == "MX Master 4"), 1)
+
+    def test_merge_skips_devices_hidpp_already_shows(self):
+        hidpp = [{"name": "MX Master 4"}]
+        merged = ld.merge_upower(hidpp, ld.parse_upower(UPOWER_DUMP))
+        self.assertNotIn("MX Master 4", [d["name"] for d in merged])
+        self.assertIn("Magic Trackpad", [d["name"] for d in merged])
+
+    def test_empty_dump(self):
+        self.assertEqual(ld.parse_upower(""), [])
+
+
 if __name__ == "__main__":
     unittest.main()

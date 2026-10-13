@@ -1,10 +1,12 @@
 # Logitech Devices (Omarchy plugin)
 
 Bar widget for Logitech mice and keyboards on Unifying, Bolt, Nano and Lightspeed
-receivers, Bluetooth or cable. The bar icon is green while every connected battery is
+receivers, Bluetooth or cable, plus every other battery-powered peripheral UPower knows
+(Bluetooth mice, keyboards, trackpads, earphones and headsets, game controllers, ...).
+The bar icon is green while every connected battery is
 fine, orange when one drops to 25 % or less and red at 10 % or less (charging devices
 don't count). The icon shows which device is low: a keyboard glyph when the keyboard is
-lower, otherwise a mouse (also on a tie). The panel lists every paired device and every
+lower (or a trackpad, headphone or controller glyph), otherwise a mouse (also on a tie). The panel lists every paired device and every
 receiver with its free slots.
 
 Per device, when the hardware supports it:
@@ -19,6 +21,10 @@ Settings you change are remembered in `~/.config/omarchy/logitech-devices/settin
 and written again when a device reconnects.
 
 ## How it works
+
+Non-Logitech peripherals come from UPower (`upower --dump`, battery only); a
+`upower --monitor` child process (tied to the helper's lifetime) triggers a rescan when a
+battery changes or a device connects. Logitech devices are shown once (HID++ wins).
 
 `scripts/logitech-devices.py` (Python stdlib only) talks Logitech's HID++ protocol
 straight over `/dev/hidraw`. No Solaar, no daemon besides the helper the bar widget runs.

@@ -8,7 +8,7 @@ import qs.Ui as Ui
 // Bar indicator for Logitech mice and keyboards: a mouse glyph in the theme's green
 // while every connected battery is fine, orange when one runs low (25 % or less) and
 // red when one is critical (10 % or less); charging devices don't count. The glyph
-// switches to the device running low (keyboard, ...); mouse on a tie. Dim while no
+// switches to the device running low (keyboard, trackpad, earphones, ...); mouse on a tie. Dim while no
 // device is connected. Left click opens the panel; right click refreshes. All device
 // traffic goes through scripts/logitech-devices.py (HID++ over /dev/hidraw), which
 // receives JSON commands on stdin and streams JSON snapshots on stdout.
@@ -52,8 +52,14 @@ Ui.BarWidget {
     case "numpad": return "󰎠"
     case "touchpad": return "󰟸"
     case "headset": return "󰋋"
+    case "speaker": return "󰓃"
     case "presenter": return "󰐯"
+    case "remote": return "󰑔"
     case "gamepad": case "joystick": return "󰊴"
+    case "tablet": case "pen": return "󰏪"
+    case "phone": return "󰏲"
+    case "wearable": return "󰖉"
+    case "camera": return "󰄀"
     default: return "󰍽"
     }
   }
@@ -89,7 +95,7 @@ Ui.BarWidget {
 
   readonly property string summary: {
     if (stats.phase === "permission") return "Logitech Devices\nNo access to the receivers yet. Click to allow it."
-    if (stats.phase === "none") return "Logitech Devices\nNo Logitech receiver or device found."
+    if (stats.phase === "none") return "Logitech Devices\nNo receiver or battery-powered device found."
     var lines = ["Logitech Devices"]
     for (var i = 0; i < devices.length; i++) {
       var d = devices[i]

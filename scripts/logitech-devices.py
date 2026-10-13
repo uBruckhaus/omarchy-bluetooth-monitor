@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Logitech receivers and devices for the Omarchy bar (stdlib only).
+"""Logitech receivers and devices, plus other battery-powered peripherals, for the
+Omarchy bar (stdlib only).
 
 Speaks Logitech's HID++ protocol directly over /dev/hidraw: lists Unifying, Bolt,
 Nano and Lightspeed receivers with their paired devices, plus Logitech devices on
@@ -12,6 +13,10 @@ Protocol: one JSON command per line on stdin
   {"cmd": "set", "device": "<id>", "key": "dpi|smartshift|threshold|invert|hires|fnswap", "value": ...}
 and one JSON snapshot per line on stdout.
 
+Other peripherals (Bluetooth mice, keyboards, trackpads, headsets, controllers, ...)
+come from UPower (`upower --dump`, refreshed on `upower --monitor` events): battery
+only, no settings.
+
 Settings changed from the panel are remembered per device (~/.config/omarchy/
 logitech-devices/settings.json) and written again when the device reconnects,
 because some devices forget them when they power off.
@@ -22,6 +27,8 @@ import glob
 import json
 import os
 import select
+import signal
+import subprocess
 import sys
 import tempfile
 import time
@@ -525,6 +532,100 @@ def battery_summary(devices):
             "charging": low["battery"].get("charging", False)}
 
 
+# ---------------------------------------------------------------------------- UPower
+
+# UPower device types worth showing; laptop batteries, mains and UPS are not peripherals.
+UPOWER_KINDS = {
+    "mouse": "mouse", "keyboard": "keyboard", "touchpad": "touchpad", "tablet": "tablet",
+    "pen": "pen", "gaming-input": "gamepad", "headset": "headset", "headphones": "headset",
+    "speakers": "speaker", "other-audio": "speaker", "remote-control": "remote",
+    "phone": "phone", "media-player": "media", "wearable": "wearable", "toy": "toy",
+    "bluetooth-generic": "device", "camera": "camera", "printer": "device",
+    "scanner": "device", "video": "device", "modem": "device", "network": "device",
+}
+UPOWER_TYPES = set(UPOWER_KINDS) | {"line-power", "battery", "ups", "monitor", "computer", "pda", "unknown"}
+UPOWER_LEVELS = {"critical": "critical", "low": "low", "normal": "good", "high": "good", "full": "full"}
+MAX_DUMP = 512 * 1024
+
+
+def run_bounded(argv, timeout=3.0, limit=MAX_DUMP):
+    try:
+        p = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           stdin=subprocess.DEVNULL, timeout=timeout, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return p.stdout[:limit].decode("utf-8", "replace")
+
+
+def parse_upower(text):
+    """Peripherals with a battery from `upower --dump`."""
+    out = []
+    for block in text.split("\nDevice: ")[0:]:
+        block = block[len("Device: "):] if block.startswith("Device: ") else block
+        lines = block.splitlines()
+        if not lines or not lines[0].startswith("/org/freedesktop/UPower/devices/"):
+            continue
+        path = lines[0].strip()
+        if path.endswith("/DisplayDevice"):
+            continue
+        fields, dtype = {}, None
+        for line in lines[1:]:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if ":" in stripped:
+                k, v = stripped.split(":", 1)
+                fields[k.strip()] = v.strip()
+            elif dtype is None and stripped in UPOWER_TYPES:
+                dtype = stripped
+        kind = UPOWER_KINDS.get(dtype or "")
+        if not kind:
+            continue
+        if fields.get("present", "yes") != "yes":
+            continue
+        native = fields.get("native-path", "")
+        if native.startswith("hidpp_battery"):  # Logitech via the kernel: HID++ covers it
+            continue
+        pct = None
+        m = fields.get("percentage", "").rstrip("%").split(".")[0].split()
+        if m and m[0].isdigit():
+            pct = max(0, min(100, int(m[0])))
+        coarse = UPOWER_LEVELS.get(fields.get("battery-level", "none"))
+        state = fields.get("state", "unknown")
+        if pct is None and not coarse:
+            continue
+        if pct == 0 and coarse is None and state in ("unknown", ""):
+            continue  # no real reading yet
+        name = clean(fields.get("model", "")) or clean(fields.get("vendor", "")) or kind.capitalize()
+        bluetooth = native.startswith("/org/bluez/") or "bluez" in native or \
+            (native.startswith("hid-") and native.count(":") == 5)
+        charging = state in ("charging", "pending-charge")
+        out.append({
+            "id": "up-" + path.rsplit("/", 1)[-1],
+            "key": "up:" + clean(fields.get("serial", "") or native or path, 120),
+            "kind": kind,
+            "name": name,
+            "online": True,
+            "source": "upower",
+            "battery": {
+                "percent": pct if coarse is None else (pct or None),
+                "level": coarse or level_for(pct),
+                "status": "full" if state == "fully-charged" else ("charging" if charging else "discharging"),
+                "charging": charging,
+                "external_power": charging or state == "fully-charged",
+            },
+            "receiver": None, "slot": None,
+            "connection": "Bluetooth" if bluetooth else "Wireless",
+        })
+    return out
+
+
+def merge_upower(hidpp_devices, upower_devices):
+    """UPower entries that are not already shown through HID++ (same name)."""
+    known = {d["name"].casefold() for d in hidpp_devices if d.get("name")}
+    return [d for d in upower_devices if d["name"].casefold() not in known]
+
+
 # ---------------------------------------------------------------------------- settings store
 
 class SettingsStore:
@@ -565,6 +666,15 @@ class SettingsStore:
 
 
 # ---------------------------------------------------------------------------- monitor
+
+def die_with_parent():
+    """Child setup: get SIGTERM when this helper dies, even if it is killed outright."""
+    try:
+        import ctypes
+        ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
+    except (OSError, AttributeError):
+        pass
+
 
 class Monitor:
     def __init__(self, out=sys.stdout):
@@ -651,9 +761,10 @@ class Monitor:
                 self.drop(path)
         for n in self.nodes.values():
             n.events.clear()  # replies to our own requests are not news
+        devices.extend(merge_upower(devices, parse_upower(run_bounded(["upower", "--dump"]))))
         if denied and not receivers and not devices:
             phase = "permission"
-        elif not found:
+        elif not found and not devices:
             phase = "none"
         else:
             phase = "ok"
@@ -763,9 +874,34 @@ class Monitor:
             n.events.clear()
         return hit
 
+    def start_watch(self):
+        """`upower --monitor` prints a line whenever a battery changes or a device comes
+        or goes; that only schedules a scan."""
+        try:
+            return subprocess.Popen(["upower", "--monitor"], stdout=subprocess.PIPE,
+                                    stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+                                    preexec_fn=die_with_parent)
+        except OSError:
+            return None
+
     def run(self, stdin=sys.stdin):
+        self.watch_proc = self.start_watch()
+        try:
+            self.loop(stdin)
+        finally:
+            if self.watch_proc:
+                self.watch_proc.terminate()
+                try:
+                    self.watch_proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    self.watch_proc.kill()
+
+    def loop(self, stdin):
         next_scan = 0.0
+        watch_proc = self.watch_proc
         fds = [stdin]
+        if watch_proc:
+            fds.append(watch_proc.stdout)
         while True:
             now = time.monotonic()
             if now >= next_scan:
@@ -776,6 +912,7 @@ class Monitor:
                 self.emit()
                 next_scan = time.monotonic() + (OPEN_INTERVAL if self.opened else CLOSED_INTERVAL)
             watch = fds + [n.fd for n in self.nodes.values()]
+            hid_from = len(fds)
             try:
                 r, _, _ = select.select(watch, [], [], max(0.1, next_scan - time.monotonic()))
             except (OSError, ValueError):
@@ -788,7 +925,14 @@ class Monitor:
                     return
                 self.handle(line)
                 next_scan = min(next_scan, time.monotonic() + 0.05)
-            if any(fd in r for fd in watch[1:]) and self.wants_refresh():
+            if watch_proc and watch_proc.stdout in r:
+                chunk = os.read(watch_proc.stdout.fileno(), 4096)
+                if chunk:
+                    next_scan = min(next_scan, time.monotonic() + 1.0)
+                else:  # upower went away: fall back to the timer
+                    fds.remove(watch_proc.stdout)
+                    watch_proc = None
+            if any(fd in r for fd in watch[hid_from:]) and self.wants_refresh():
                 next_scan = min(next_scan, time.monotonic() + 1.0)
 
     def handle(self, line):
@@ -809,6 +953,8 @@ class Monitor:
 
 
 def main():
+    # SIGTERM from the shell runs the cleanup in Monitor.run (finally) like a normal exit.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     if len(sys.argv) > 1 and sys.argv[1] == "--once":
         m = Monitor()
         m.scan()
