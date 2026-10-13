@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "ubruckhaus.logitech-devices",
+  "name": "Logitech Devices",
+  "version": "0.1.0",
+  "author": "uBruckhaus",
+  "description": "Logitech mice and keyboards on Unifying, Bolt, Nano and Lightspeed receivers or Bluetooth: battery levels in the bar, DPI, SmartShift, scroll wheel and Fn keys in a panel. Talks HID++ directly, no Solaar needed.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Logitech Devices",
+    "description": "Battery and settings of Logitech mice and keyboards",
+    "category": "System",
+    "defaultSection": "right",
+    "allowMultiple": false
+  },
+  "license": "MIT"
+}
