@@ -41,8 +41,13 @@ Ui.BarWidget {
   // stable key (model id or serial), not the per-boot hidraw id. Hidden devices leave
   // the bar's icon and tooltip too, so an ignored device never warns.
   readonly property var hidden: {
+    // From shell.json at startup the list arrives as a Qt sequence, not a JS array
+    // (Array.isArray() is false for it), so copy it item by item.
     var h = root.setting("hidden", [])
-    return Array.isArray(h) ? h.map(String) : []
+    var out = []
+    if (h && typeof h !== "string" && typeof h.length === "number")
+      for (var i = 0; i < h.length && i < 500; i++) out.push(String(h[i]))
+    return out
   }
   function deviceKey(d) { return String(d.key || d.id || "") }
   function isHidden(d) { return root.hidden.indexOf(deviceKey(d)) >= 0 }
