@@ -173,7 +173,10 @@ Panel {
   }
 
   function open() { root.controller.show() }
-  function close() { root.controller.hide(); root.settingsOpen = false; root.showHidden = false }
+  function close() { root.controller.hide() }
+  // However the panel closes (Esc, a click outside, another panel, the bar icon), it
+  // opens again on the device list with the hidden devices hidden.
+  onOpenedChanged: if (!root.opened) { root.settingsOpen = false; root.showHidden = false }
   function toggle() { if (root.opened) root.close(); else root.open() }
 
   // The theme's green (colors.toml) for charging batteries, like the bar's running indicators.
