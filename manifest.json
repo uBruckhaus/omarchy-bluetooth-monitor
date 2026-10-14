@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ubruckhaus.bluetooth-monitor",
   "name": "Bluetooth Monitor",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "uBruckhaus",
   "description": "Every wireless mouse, keyboard, trackpad, earphone and controller at a glance: battery levels and how each one is connected (Bluetooth or USB dongle) in one picture. The bar icon turns orange or red and shows which device runs low. Logitech Unifying and Bolt devices also get DPI, SmartShift, scrolling and Fn-key settings, no Solaar needed.",
   "kinds": [

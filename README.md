@@ -15,8 +15,11 @@ dongle (Unifying, Bolt, Nano, Lightspeed).
 - **A bar icon that stays quiet until it matters.** Green while every battery is fine,
   **orange** when one runs low, **red** when one is critical, and it turns into the device
   that needs charging: keyboard, trackpad, earphones, controller (mouse on a tie).
-- **Only what is switched on.** Devices that are off are hidden; the eye button in the
-  header shows them (with how many there are).
+- **You pick what is listed.** Every device is shown, switched on or off; hide the ones you
+  don't care about with the eye on their card. A hidden device also leaves the bar icon,
+  so it never warns. The eye button in the header shows the hidden ones again (with how
+  many there are), dimmed, so you can bring them back.
+- **One click to Omarchy's Bluetooth panel** for pairing, connecting and power.
 - **Logitech settings without Solaar or Logi Options**, straight over Logitech's HID++
   protocol, when the device supports them: pointer speed (DPI), SmartShift / ratchet /
   free-spin scroll wheel and its sensitivity, natural and high-resolution scrolling, Fn-key

@@ -37,12 +37,29 @@ Ui.BarWidget {
     root.bar.shell.updateEntryInline(root.moduleName, next)
   }
   function setLanguage(code) { setOption("language", code, "auto") }
+  // Devices hidden by hand in the panel (like Launch & Bind's hidden apps), by their
+  // stable key (model id or serial), not the per-boot hidraw id. Hidden devices leave
+  // the bar's icon and tooltip too, so an ignored device never warns.
+  readonly property var hidden: {
+    var h = root.setting("hidden", [])
+    return Array.isArray(h) ? h.map(String) : []
+  }
+  function deviceKey(d) { return String(d.key || d.id || "") }
+  function isHidden(d) { return root.hidden.indexOf(deviceKey(d)) >= 0 }
+  function setHidden(d, on) {
+    var k = deviceKey(d)
+    if (!k) return
+    var next = root.hidden.filter(function(x) { return x !== k })
+    if (on) next.push(k)
+    next.sort()
+    setOption("hidden", next.length ? next : undefined, undefined)
+  }
   onOtherDevicesChanged: send({ cmd: "options", other_devices: root.otherDevices })
 
   property var stats: ({})
   // Push every snapshot into the panel; never let it read from an older widget instance.
   onStatsChanged: if (panelLoader.item && "stats" in panelLoader.item) panelLoader.item.stats = root.stats
-  readonly property var devices: stats.devices || []
+  readonly property var devices: (stats.devices || []).filter(function(d) { return !root.isHidden(d) })
   readonly property int onlineCount: {
     var n = 0
     for (var i = 0; i < devices.length; i++) if (devices[i].online) n++
@@ -124,7 +141,7 @@ Ui.BarWidget {
     var lines = ["Bluetooth Monitor"]
     for (var i = 0; i < devices.length; i++) {
       var d = devices[i]
-      if (!d.online) continue  // the panel's eye button shows switched-off devices
+      if (!d.online) continue
       lines.push("● " + deviceName(d) + (d.battery ? "  " + batteryText(d) : ""))
     }
     return lines.join("\n")

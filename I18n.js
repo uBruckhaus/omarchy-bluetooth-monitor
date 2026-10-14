@@ -141,9 +141,6 @@ var STRINGS = {
       "lowAt": "Low battery warning",
       "criticalAt": "Critical battery warning",
       "atOrBelow": "at {0}% or less",
-      "showOff": "Show switched-off devices ({0})",
-      "hideOff": "Hide switched-off devices",
-      "showingOff": "showing switched-off devices",
       "otherDevices": "Other Bluetooth devices",
       "otherDevicesHint": "Trackpads, earphones, controllers and more (battery only)",
       "connections": "Connections",
@@ -158,7 +155,14 @@ var STRINGS = {
       "btDongleSub": "USB stick",
       "access": "Receiver access",
       "accessGranted": "Granted",
-      "accessMissing": "Not granted"
+      "accessMissing": "Not granted",
+      "showHidden": "Show hidden devices ({0})",
+      "hideHidden": "Hide hidden devices",
+      "hide": "Hide from list",
+      "unhide": "Show in list",
+      "hiddenTag": "hidden",
+      "bluetooth": "Bluetooth",
+      "bluetoothTip": "Open Omarchy’s Bluetooth panel (pair, connect, power)"
   },
   de: {
       "settings": "Einstellungen",
@@ -224,9 +228,6 @@ var STRINGS = {
       "lowAt": "Warnung bei niedrigem Akku",
       "criticalAt": "Warnung bei kritischem Akku",
       "atOrBelow": "bei {0}% oder weniger",
-      "showOff": "Ausgeschaltete Geräte zeigen ({0})",
-      "hideOff": "Ausgeschaltete Geräte ausblenden",
-      "showingOff": "mit ausgeschalteten Geräten",
       "otherDevices": "Andere Bluetooth-Geräte",
       "otherDevicesHint": "Trackpads, Kopfhörer, Controller und mehr (nur Akku)",
       "connections": "Verbindungen",
@@ -241,7 +242,14 @@ var STRINGS = {
       "btDongleSub": "USB-Stick",
       "access": "Zugriff auf Empfänger",
       "accessGranted": "Erlaubt",
-      "accessMissing": "Nicht erlaubt"
+      "accessMissing": "Nicht erlaubt",
+      "showHidden": "Ausgeblendete Geräte zeigen ({0})",
+      "hideHidden": "Ausgeblendete Geräte verbergen",
+      "hide": "Aus der Liste ausblenden",
+      "unhide": "In der Liste zeigen",
+      "hiddenTag": "ausgeblendet",
+      "bluetooth": "Bluetooth",
+      "bluetoothTip": "Omarchys Bluetooth-Panel öffnen (koppeln, verbinden, ein/aus)"
   },
   fr: {
       "settings": "Réglages",
@@ -307,9 +315,6 @@ var STRINGS = {
       "lowAt": "Alerte batterie faible",
       "criticalAt": "Alerte batterie critique",
       "atOrBelow": "à {0}% ou moins",
-      "showOff": "Afficher les appareils éteints ({0})",
-      "hideOff": "Masquer les appareils éteints",
-      "showingOff": "appareils éteints affichés",
       "otherDevices": "Autres appareils Bluetooth",
       "otherDevicesHint": "Pavés tactiles, écouteurs, manettes et plus (batterie seulement)",
       "connections": "Connexions",
@@ -324,7 +329,14 @@ var STRINGS = {
       "btDongleSub": "Clé USB",
       "access": "Accès aux récepteurs",
       "accessGranted": "Autorisé",
-      "accessMissing": "Non autorisé"
+      "accessMissing": "Non autorisé",
+      "showHidden": "Afficher les appareils masqués ({0})",
+      "hideHidden": "Cacher les appareils masqués",
+      "hide": "Masquer de la liste",
+      "unhide": "Afficher dans la liste",
+      "hiddenTag": "masqué",
+      "bluetooth": "Bluetooth",
+      "bluetoothTip": "Ouvrir le panneau Bluetooth d’Omarchy (appairer, connecter, alimentation)"
   },
   es: {
       "settings": "Ajustes",
@@ -390,9 +402,6 @@ var STRINGS = {
       "lowAt": "Aviso de batería baja",
       "criticalAt": "Aviso de batería crítica",
       "atOrBelow": "al {0}% o menos",
-      "showOff": "Mostrar dispositivos apagados ({0})",
-      "hideOff": "Ocultar dispositivos apagados",
-      "showingOff": "mostrando dispositivos apagados",
       "otherDevices": "Otros dispositivos Bluetooth",
       "otherDevicesHint": "Paneles táctiles, auriculares, mandos y más (solo batería)",
       "connections": "Conexiones",
@@ -407,7 +416,14 @@ var STRINGS = {
       "btDongleSub": "Llave USB",
       "access": "Acceso a los receptores",
       "accessGranted": "Permitido",
-      "accessMissing": "No permitido"
+      "accessMissing": "No permitido",
+      "showHidden": "Mostrar dispositivos ocultos ({0})",
+      "hideHidden": "Ocultar dispositivos ocultos",
+      "hide": "Ocultar de la lista",
+      "unhide": "Mostrar en la lista",
+      "hiddenTag": "oculto",
+      "bluetooth": "Bluetooth",
+      "bluetoothTip": "Abrir el panel Bluetooth de Omarchy (emparejar, conectar, encender)"
   },
   it: {
       "settings": "Impostazioni",
@@ -473,9 +489,6 @@ var STRINGS = {
       "lowAt": "Avviso batteria scarica",
       "criticalAt": "Avviso batteria critica",
       "atOrBelow": "al {0}% o meno",
-      "showOff": "Mostra dispositivi spenti ({0})",
-      "hideOff": "Nascondi dispositivi spenti",
-      "showingOff": "dispositivi spenti visibili",
       "otherDevices": "Altri dispositivi Bluetooth",
       "otherDevicesHint": "Trackpad, auricolari, controller e altro (solo batteria)",
       "connections": "Connessioni",
@@ -490,7 +503,14 @@ var STRINGS = {
       "btDongleSub": "Chiavetta USB",
       "access": "Accesso ai ricevitori",
       "accessGranted": "Consentito",
-      "accessMissing": "Non consentito"
+      "accessMissing": "Non consentito",
+      "showHidden": "Mostra i dispositivi nascosti ({0})",
+      "hideHidden": "Nascondi i dispositivi nascosti",
+      "hide": "Nascondi dall’elenco",
+      "unhide": "Mostra nell’elenco",
+      "hiddenTag": "nascosto",
+      "bluetooth": "Bluetooth",
+      "bluetoothTip": "Apri il pannello Bluetooth di Omarchy (abbina, connetti, accendi)"
   },
   pt: {
       "settings": "Configurações",
@@ -556,9 +576,6 @@ var STRINGS = {
       "lowAt": "Aviso de bateria fraca",
       "criticalAt": "Aviso de bateria crítica",
       "atOrBelow": "a {0}% ou menos",
-      "showOff": "Mostrar dispositivos desligados ({0})",
-      "hideOff": "Ocultar dispositivos desligados",
-      "showingOff": "a mostrar dispositivos desligados",
       "otherDevices": "Outros dispositivos Bluetooth",
       "otherDevicesHint": "Touchpads, auriculares, comandos e mais (só bateria)",
       "connections": "Ligações",
@@ -573,7 +590,14 @@ var STRINGS = {
       "btDongleSub": "Pen USB",
       "access": "Acesso aos recetores",
       "accessGranted": "Permitido",
-      "accessMissing": "Não permitido"
+      "accessMissing": "Não permitido",
+      "showHidden": "Mostrar dispositivos ocultos ({0})",
+      "hideHidden": "Ocultar dispositivos ocultos",
+      "hide": "Ocultar da lista",
+      "unhide": "Mostrar na lista",
+      "hiddenTag": "oculto",
+      "bluetooth": "Bluetooth",
+      "bluetoothTip": "Abrir o painel Bluetooth do Omarchy (emparelhar, ligar, energia)"
   },
   nl: {
       "settings": "Instellingen",
@@ -639,9 +663,6 @@ var STRINGS = {
       "lowAt": "Waarschuwing lage batterij",
       "criticalAt": "Waarschuwing kritieke batterij",
       "atOrBelow": "bij {0}% of minder",
-      "showOff": "Uitgeschakelde apparaten tonen ({0})",
-      "hideOff": "Uitgeschakelde apparaten verbergen",
-      "showingOff": "uitgeschakelde apparaten zichtbaar",
       "otherDevices": "Andere Bluetooth-apparaten",
       "otherDevicesHint": "Trackpads, oordopjes, controllers en meer (alleen batterij)",
       "connections": "Verbindingen",
@@ -656,7 +677,14 @@ var STRINGS = {
       "btDongleSub": "USB-stick",
       "access": "Toegang tot ontvangers",
       "accessGranted": "Toegestaan",
-      "accessMissing": "Niet toegestaan"
+      "accessMissing": "Niet toegestaan",
+      "showHidden": "Verborgen apparaten tonen ({0})",
+      "hideHidden": "Verborgen apparaten verbergen",
+      "hide": "Uit de lijst verbergen",
+      "unhide": "In de lijst tonen",
+      "hiddenTag": "verborgen",
+      "bluetooth": "Bluetooth",
+      "bluetoothTip": "Het Bluetooth-paneel van Omarchy openen (koppelen, verbinden, aan/uit)"
   },
   pl: {
       "settings": "Ustawienia",
@@ -723,9 +751,6 @@ var STRINGS = {
       "lowAt": "Ostrzeżenie o niskiej baterii",
       "criticalAt": "Ostrzeżenie o krytycznej baterii",
       "atOrBelow": "przy {0}% lub mniej",
-      "showOff": "Pokaż wyłączone urządzenia ({0})",
-      "hideOff": "Ukryj wyłączone urządzenia",
-      "showingOff": "widoczne wyłączone urządzenia",
       "otherDevices": "Inne urządzenia Bluetooth",
       "otherDevicesHint": "Touchpady, słuchawki, kontrolery i inne (tylko bateria)",
       "connections": "Połączenia",
@@ -740,6 +765,13 @@ var STRINGS = {
       "btDongleSub": "Moduł USB",
       "access": "Dostęp do odbiorników",
       "accessGranted": "Przyznany",
-      "accessMissing": "Nieprzyznany"
+      "accessMissing": "Nieprzyznany",
+      "showHidden": "Pokaż ukryte urządzenia ({0})",
+      "hideHidden": "Ukryj ukryte urządzenia",
+      "hide": "Ukryj na liście",
+      "unhide": "Pokaż na liście",
+      "hiddenTag": "ukryte",
+      "bluetooth": "Bluetooth",
+      "bluetoothTip": "Otwórz panel Bluetooth Omarchy (parowanie, łączenie, zasilanie)"
   }
 }

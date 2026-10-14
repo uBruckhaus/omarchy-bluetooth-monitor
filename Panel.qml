@@ -22,11 +22,25 @@ Panel {
   property var stats: ({})  // pushed by BarWidget on every snapshot
   readonly property string phase: String(stats.phase || "starting")
   readonly property var allDevices: stats.devices || []
-  // Only connected devices by default; the eye button in the header shows the
-  // switched-off ones too (like Launch & Bind's hidden apps) until the panel closes.
-  property bool showInactive: false
-  readonly property var devices: showInactive ? allDevices : allDevices.filter(function(d) { return d.online })
-  readonly property int inactiveCount: allDevices.length - allDevices.filter(function(d) { return d.online }).length
+  // Every device, connected or switched off, unless hidden by hand with its eye button
+  // (like Launch & Bind's hidden apps; kept in shell.json). The eye in the header shows
+  // the hidden ones too, dimmed, until the panel closes.
+  property bool showHidden: false
+  function isHidden(dev) { return !!root.hostWidget && root.hostWidget.isHidden(dev) }
+  function setHidden(dev, on) { if (root.hostWidget) root.hostWidget.setHidden(dev, on) }
+  readonly property var shownDevices: allDevices.filter(function(d) { return !root.isHidden(d) })
+  readonly property var devices: showHidden ? allDevices : shownDevices
+  readonly property int hiddenCount: allDevices.length - shownDevices.length
+  // Lowest battery among connected devices that are not hidden.
+  readonly property var lowest: {
+    var best = null
+    for (var i = 0; i < shownDevices.length; i++) {
+      var d = shownDevices[i], b = d.battery
+      if (!d.online || !b || b.percent === null || b.percent === undefined) continue
+      if (!best || b.percent < best.percent) best = { percent: b.percent }
+    }
+    return best
+  }
   readonly property var receivers: stats.receivers || []
   property var expanded: ({})   // device id -> true while its settings are shown
   property bool settingsOpen: false
@@ -56,7 +70,7 @@ Panel {
   function hasSettings(dev) { return !!(dev.dpi || dev.smartshift || dev.wheel || dev.fnswap) }
   function onlineCount() {
     var n = 0
-    for (var i = 0; i < allDevices.length; i++) if (allDevices[i].online) n++
+    for (var i = 0; i < shownDevices.length; i++) if (shownDevices[i].online) n++
     return n
   }
 
@@ -114,7 +128,7 @@ Panel {
       var rec = receivers[r]
       seen[rec.family] = (seen[rec.family] || 0) + 1
       var devs = devices.filter(function(d) { return d.receiver === rec.id })
-      if (!devs.length && !showInactive) continue
+      if (!devs.length && !showHidden) continue
       var paired = allDevices.filter(function(d) { return d.receiver === rec.id }).length
       out.push({ type: "dongle", label: connName(rec.family) + (perFamily[rec.family] > 1 ? " " + seen[rec.family] : ""),
                  sub: t("dongleSub", [paired, rec.max_devices]), devices: devs,
@@ -126,7 +140,7 @@ Panel {
     for (var a = 0; a < adapters.length; a++) {
       var ad = adapters[a]
       var mine = btDevices.filter(function(d) { return d.adapter === ad.id || (!d.adapter && a === 0) })
-      if (!mine.length && !showInactive) continue
+      if (!mine.length && !showHidden) continue
       out.push({ type: "bluetooth", builtin: ad.builtin,
                  label: ad.builtin ? t("btBuiltin") : t("btDongle") + (adapters.length > 1 ? " " + (a + 1) : ""),
                  sub: (ad.builtin ? t("btBuiltinSub") : t("btDongleSub")) + (ad.vendor ? " · " + ad.vendor : ""),
@@ -159,7 +173,7 @@ Panel {
   }
 
   function open() { root.controller.show() }
-  function close() { root.controller.hide(); root.settingsOpen = false; root.showInactive = false }
+  function close() { root.controller.hide(); root.settingsOpen = false; root.showHidden = false }
   function toggle() { if (root.opened) root.close(); else root.open() }
 
   // The theme's green (colors.toml) for charging batteries, like the bar's running indicators.
@@ -254,9 +268,9 @@ Panel {
             fontFamily: root.font
             title: "Bluetooth Monitor"
             meta: root.phase === "ok"
-              ? root.t("connectedOf", [root.onlineCount(), root.allDevices.length]) + (root.receivers.length ? " · " + root.tn("receiversN", root.receivers.length, [root.receivers.length]) : "")
+              ? root.t("connectedOf", [root.onlineCount(), root.shownDevices.length]) + (root.receivers.length ? " · " + root.tn("receiversN", root.receivers.length, [root.receivers.length]) : "")
               : root.phase === "permission" ? root.t("accessNeeded") : root.phase === "none" ? root.t("nothingFound") : root.t("looking")
-            detail: root.stats.lowest ? root.t("lowestBattery", [root.stats.lowest.percent]) : ""
+            detail: root.lowest ? root.t("lowestBattery", [root.lowest.percent]) : ""
             trailingControl: Component {
               // As tall as the hero text, with the gear centred on the title
               // row so it lines up with the detail pill.
@@ -267,16 +281,16 @@ Panel {
                 Text { id: heroTitle; visible: false; textFormat: Text.PlainText; text: "W"; font.family: root.font; font.pixelSize: Style.font.title; font.bold: true }
                 Text { id: heroBody; visible: false; textFormat: Text.PlainText; text: "W"; font.family: root.font; font.pixelSize: Style.font.body; font.bold: true }
                 Text { id: heroMeta; visible: false; textFormat: Text.PlainText; text: "W"; font.family: root.font; font.pixelSize: Style.font.caption; font.bold: true }
-                // Eye: show / hide switched-off devices; the count says how many are hidden.
+                // Eye: show / hide the hidden devices; the count says how many there are.
                 Button {
                   id: eyeButton
-                  visible: root.inactiveCount > 0 || root.showInactive
+                  visible: root.hiddenCount > 0 || root.showHidden
                   width: visible ? implicitWidth : -Style.space(6)
                   y: Math.round((heroTitle.implicitHeight - height) / 2)
                   height: heroBody.implicitHeight + Style.space(4)
-                  iconText: root.showInactive ? "󰈉" : "󰈈"
-                  text: root.showInactive ? "" : String(root.inactiveCount)
-                  selected: root.showInactive
+                  iconText: root.showHidden ? "󰈉" : "󰈈"
+                  text: root.showHidden ? "" : String(root.hiddenCount)
+                  selected: root.showHidden
                   bordered: true
                   iconSize: Style.font.body
                   fontSize: Style.font.caption
@@ -284,8 +298,8 @@ Panel {
                   verticalPadding: Style.space(1)
                   foreground: root.fg
                   fontFamily: root.font
-                  tooltipText: root.showInactive ? root.t("hideOff") : root.t("showOff", [root.inactiveCount])
-                  onClicked: root.showInactive = !root.showInactive
+                  tooltipText: root.showHidden ? root.t("hideHidden") : root.t("showHidden", [root.hiddenCount])
+                  onClicked: root.showHidden = !root.showHidden
                 }
                 Button {
                   id: gearButton
@@ -690,6 +704,7 @@ Panel {
                     required property int index
                     readonly property var dev: linkRow.link.devices[index] || ({})
                     width: chips.width
+                    opacity: root.isHidden(dev) ? 0.5 : 1
                     height: chipBox.height
                     // Dotted radio line from the link to the device.
                     Row {
@@ -780,7 +795,9 @@ Panel {
               readonly property var dev: root.deviceAt(index)
               readonly property bool isOpen: root.expanded[dev.id] === true && dev.online && root.hasSettings(dev)
               readonly property real pad: Style.space(10)
+              readonly property bool hiddenDev: root.isHidden(dev)
               width: column.width
+              opacity: hiddenDev ? 0.55 : 1
               height: cardColumn.implicitHeight + 2 * pad
               radius: Style.cornerRadius
               color: dev.online
@@ -842,7 +859,7 @@ Panel {
                       width: parent.width
                       textFormat: Text.PlainText
                       elide: Text.ElideRight
-                      text: root.statusLine(card.dev)
+                      text: root.statusLine(card.dev) + (card.hiddenDev ? " · " + root.t("hiddenTag") : "")
                       color: root.dim
                       font.family: root.font
                       font.pixelSize: Style.font.caption
@@ -851,7 +868,7 @@ Panel {
 
                   Row {
                     id: batteryBox
-                    anchors.right: chevron.left
+                    anchors.right: hideButton.left
                     anchors.rightMargin: Style.space(6)
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: Style.space(4)
@@ -874,6 +891,24 @@ Panel {
                       font.pixelSize: Style.font.caption
                       font.bold: true
                     }
+                  }
+
+                  // Hide / show again, right on the card (no menu): the eye.
+                  Button {
+                    id: hideButton
+                    anchors.right: chevron.left
+                    anchors.rightMargin: Style.space(4)
+                    anchors.verticalCenter: parent.verticalCenter
+                    z: 1
+                    iconText: card.hiddenDev ? "󰈈" : "󰈉"
+                    iconSize: Style.font.body
+                    horizontalPadding: Style.space(3)
+                    verticalPadding: Style.space(1)
+                    opacity: card.hiddenDev || cardHover.hovered ? 1 : 0.4
+                    foreground: root.fg
+                    fontFamily: root.font
+                    tooltipText: card.hiddenDev ? root.t("unhide") : root.t("hide")
+                    onClicked: root.setHidden(card.dev, !card.hiddenDev)
                   }
 
                   Text {
@@ -1079,6 +1114,20 @@ Panel {
               foreground: root.fg
               fontFamily: root.font
               onClicked: root.send({ cmd: "refresh" })
+            }
+            Button {
+              text: root.t("bluetooth")
+              iconText: "󰂯"
+              bordered: true
+              foreground: root.fg
+              fontFamily: root.font
+              tooltipText: root.t("bluetoothTip")
+              onClicked: {
+                root.close()
+                // Third-party plugins may not summon built-in panels directly, so go
+                // through the shell CLI (fixed argv, no shell string), like WLAN Monitor.
+                Quickshell.execDetached(["omarchy-shell", "shell", "summon", "omarchy.bluetooth", "{}"])
+              }
             }
           }
           }
