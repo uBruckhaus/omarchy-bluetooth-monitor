@@ -19,7 +19,11 @@ dongle (Unifying, Bolt, Nano, Lightspeed).
   don't care about with the eye on their card. A hidden device also leaves the bar icon,
   so it never warns. The eye button in the header shows the hidden ones again (with how
   many there are), dimmed, so you can bring them back.
-- **One click to Omarchy's Bluetooth panel** for pairing, connecting and power.
+- **Bluetooth page** (the Bluetooth button): switch Bluetooth on or off, scan for new devices,
+  pair, connect, disconnect and forget, so Omarchy's own Bluetooth widget can be turned off.
+  It scans only while the page is open (through `bluetoothctl scan on`, which BlueZ stops as soon as the page closes);
+  a headset that connects becomes the audio output. Pairing and connecting use Omarchy's own `omarchy-bluetooth-device`
+  and `omarchy-bluetooth-power` helpers.
 - **Logitech settings without Solaar or Logi Options**, straight over Logitech's HID++
   protocol, when the device supports them: pointer speed (DPI), SmartShift / ratchet /
   free-spin scroll wheel and its sensitivity, natural and high-resolution scrolling, Fn-key

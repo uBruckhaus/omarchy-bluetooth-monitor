@@ -2,6 +2,8 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Bluetooth
+import Quickshell.Services.Pipewire
 import qs.Commons
 import qs.Ui
 import "I18n.js" as I18n
@@ -176,8 +178,155 @@ Panel {
   function close() { root.controller.hide() }
   // However the panel closes (Esc, a click outside, another panel, the bar icon), it
   // opens again on the device list with the hidden devices hidden.
-  onOpenedChanged: if (!root.opened) { root.settingsOpen = false; root.showHidden = false }
+  onOpenedChanged: if (!root.opened) { root.settingsOpen = false; root.showHidden = false; root.btOpen = false }
   function toggle() { if (root.opened) root.close(); else root.open() }
+
+  // ------------------------------------------------------------ Bluetooth page
+  // Pair, connect, forget and power, like Omarchy's own Bluetooth panel (which can be
+  // turned off then). The actions go through Omarchy's helpers with a fixed argv; rows
+  // hold plain values only, never the BlueZ device objects (they can vanish mid-update).
+  property bool btOpen: false
+  onBtOpenChanged: root.confirmForget = ""
+  readonly property var btAdapter: Bluetooth.defaultAdapter
+  readonly property bool btEnabled: !!root.btAdapter && root.btAdapter.enabled
+  readonly property bool btScanning: root.btEnabled && scanProcess.running
+  readonly property var btDevices: Bluetooth.devices ? Bluetooth.devices.values : []
+  property var btPending: ({})        // address -> "connecting" | "disconnecting" | "forgetting"
+  property string confirmForget: ""   // address waiting for the second click on Forget
+  property var audioTarget: null      // device just connected; its sink becomes the default
+  property int audioTries: 0
+
+  // The alias first: a name you gave the device wins over the one it reports.
+  function btName(d) { return String(d.name || d.deviceName || "").trim() }
+  function btHumanName(d) {
+    var n = btName(d)
+    return n !== "" && !/^([0-9a-f]{2}[:-]){5}[0-9a-f]{2}$/i.test(n)
+      && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(n)
+  }
+  function btRow(d, section) {
+    return { address: String(d.address || ""), name: btName(d), icon: String(d.icon || ""), section: section,
+             connected: !!d.connected, state: d.state !== undefined ? d.state : -1, pairing: !!d.pairing,
+             battery: d.batteryAvailable ? Math.round(d.battery * 100) : -1 }
+  }
+  readonly property var btRows: {
+    var connected = [], paired = [], found = []
+    for (var i = 0; i < btDevices.length; i++) {
+      var d = btDevices[i]
+      if (!d || !btHumanName(d)) continue
+      if (d.connected) connected.push(btRow(d, "connected"))
+      else if (d.paired || d.bonded || d.trusted) paired.push(btRow(d, "paired"))
+      else if (root.btScanning) found.push(btRow(d, "available"))
+    }
+    var byName = function(a, b) { return a.name.localeCompare(b.name) }
+    // A crowded place can show hundreds of devices; the nearest 40 by name are plenty.
+    return { connected: connected.sort(byName), paired: paired.sort(byName), available: found.sort(byName).slice(0, 40) }
+  }
+  function btDevice(address) {
+    for (var i = 0; i < btDevices.length; i++) if (btDevices[i] && btDevices[i].address === address) return btDevices[i]
+    return null
+  }
+  function btKindIcon(icon, connected) {
+    var s = String(icon)
+    if (s.indexOf("audio-head") === 0) return "󰋋"
+    if (s.indexOf("audio") === 0) return "󰓃"
+    if (s.indexOf("input-mouse") === 0) return "󰍽"
+    if (s.indexOf("input-keyboard") === 0) return "󰌌"
+    if (s.indexOf("input-gaming") === 0) return "󰊴"
+    if (s.indexOf("input-tablet") === 0) return "󰟸"   // BlueZ calls trackpads tablets
+    if (s.indexOf("video") === 0) return "󰔂"
+    if (s.indexOf("phone") === 0) return "󰏲"
+    if (s.indexOf("computer") === 0) return "󰇄"
+    return connected ? "󰂱" : "󰂯"
+  }
+  function setBtPending(address, action) {
+    var next = Object.assign({}, btPending)
+    if (action) next[address] = action
+    else delete next[address]
+    btPending = next
+    if (action) btPendingTimeout.restart()
+  }
+  function btRun(action, address, pending) {
+    // BlueZ addresses only; anything else never reaches the helper.
+    if (!/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(address)) return
+    setBtPending(address, pending)
+    Quickshell.execDetached(["omarchy-bluetooth-device", action, address])
+  }
+  function btConnect(row) {
+    var d = btDevice(row.address)
+    if (!d || d.connected) return
+    btRun(row.section === "available" ? "pair" : "connect", row.address, "connecting")
+  }
+  function btDisconnect(row) {
+    var d = btDevice(row.address)
+    if (!d || !d.connected) return
+    btRun("disconnect", row.address, "disconnecting")
+  }
+  function btForget(row) {
+    if (root.confirmForget !== row.address) { root.confirmForget = row.address; return }
+    root.confirmForget = ""
+    btRun("forget", row.address, "forgetting")
+  }
+  // The rfkill block survives a reboot; BlueZ's Powered would not.
+  function btPower(on) { Quickshell.execDetached(["omarchy-bluetooth-power", on ? "on" : "off"]) }
+  onBtDevicesChanged: syncBtPending()
+  onBtRowsChanged: syncBtPending()
+  function syncBtPending() {
+    var next = Object.assign({}, btPending), changed = false
+    for (var address in next) {
+      var d = btDevice(address), action = next[address]
+      var connectedNow = action === "connecting" && d && d.connected
+      if (connectedNow || (action === "disconnecting" && d && !d.connected)
+          || (action === "forgetting" && (!d || (!d.paired && !d.bonded && !d.trusted)))) {
+        if (connectedNow) { root.audioTarget = { address: address, name: btName(d) }; root.audioTries = 0; audioSwitch.restart() }
+        delete next[address]
+        changed = true
+      }
+    }
+    if (changed) btPending = next
+  }
+  // A headset or speaker that just connected becomes the default output, as in Omarchy's panel.
+  function switchAudio() {
+    if (!root.audioTarget) return
+    var nodes = Pipewire.nodes ? Pipewire.nodes.values : []
+    var addr = root.audioTarget.address.toLowerCase().replace(/[^0-9a-f]/g, "")
+    var name = root.audioTarget.name.toLowerCase()
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i]
+      if (!n || !n.isSink || n.isStream) continue
+      var p = n.ready && n.properties ? n.properties : {}
+      var text = [n.name, n.description, n.nickname, p["node.name"], p["node.description"], p["device.description"],
+                  p["api.bluez5.address"]].join(" ").toLowerCase()
+      if ((addr && text.replace(/[^0-9a-f]/g, "").indexOf(addr) !== -1) || (name && text.indexOf(name) !== -1)) {
+        Pipewire.preferredDefaultAudioSink = n
+        // A numeric id and a plain sink name only, so nothing reaches wpctl/pactl as an option.
+        if (/^[0-9]{1,9}$/.test(String(n.id)) && /^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,199}$/.test(String(n.name || "")))
+          Quickshell.execDetached(["omarchy-audio-output-set-default", String(n.id), String(n.name)])
+        root.audioTarget = null
+        return
+      }
+    }
+    if (++root.audioTries >= 8) root.audioTarget = null
+    else audioSwitch.restart()
+  }
+  Timer { id: audioSwitch; interval: 500; onTriggered: root.switchAudio() }
+  Timer { id: btPendingTimeout; interval: 20000; onTriggered: root.btPending = ({}) }
+  // Scan only while the Bluetooth page is on screen, through bluetoothctl's own
+  // discovery session: BlueZ ends it the moment the process exits, so closing the
+  // page (or the shell) always stops it; an endless scan makes Bluetooth audio
+  // stutter. Quickshell's adapter.discovering is not used for this: it stays stale
+  // while another program (another plugin's scan) holds a session, so the start
+  // and stop it drives can both be lost. The timeout is a backstop; a page still
+  // open after it starts a new scan.
+  readonly property bool wantScan: root.opened && root.btOpen && root.btEnabled
+  onWantScanChanged: scanProcess.running = root.wantScan
+  Process {
+    id: scanProcess
+    command: ["bluetoothctl", "--timeout", "300", "scan", "on"]
+    stdout: SplitParser { onRead: function(_line) {} }
+    stderr: SplitParser { onRead: function(_line) {} }
+    onExited: if (root.wantScan) Qt.callLater(function() { scanProcess.running = root.wantScan })
+  }
+  Component.onDestruction: scanProcess.running = false
 
   // The theme's green (colors.toml) for charging batteries, like the bar's running indicators.
   FileView {
@@ -233,6 +382,87 @@ Panel {
     }
   }
 
+  // One Bluetooth device: kind icon, name and state, then its action and Forget (asks twice).
+  component BtRow: Item {
+    id: btRow
+    property var row: ({})
+    readonly property string pending: root.btPending[row.address] || ""
+    readonly property bool busy: pending !== "" || row.state === 2 || row.state === 3 || row.pairing
+    readonly property bool asking: root.confirmForget === row.address
+    height: Math.max(btInfo.implicitHeight, btActions.implicitHeight) + Style.space(4)
+    Text {
+      id: btIcon
+      anchors.left: parent.left
+      anchors.verticalCenter: parent.verticalCenter
+      width: Style.space(26)
+      textFormat: Text.PlainText
+      text: root.btKindIcon(btRow.row.icon, btRow.row.connected)
+      color: btRow.row.connected ? Color.accent : root.dim
+      font.family: root.font
+      font.pixelSize: Style.font.title
+    }
+    Column {
+      id: btInfo
+      anchors.left: btIcon.right
+      anchors.leftMargin: Style.space(6)
+      anchors.right: btActions.left
+      anchors.rightMargin: Style.space(8)
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Style.space(1)
+      Text {
+        width: parent.width
+        textFormat: Text.PlainText
+        elide: Text.ElideRight
+        text: btRow.row.name
+        color: root.fg
+        font.family: root.font
+        font.pixelSize: Style.font.body
+      }
+      Text {
+        readonly property string status: btRow.pending === "forgetting" ? root.t("btForgetting")
+          : btRow.pending === "disconnecting" || btRow.row.state === 2 ? root.t("btDisconnecting")
+          : btRow.row.connected ? (btRow.row.battery >= 0 ? btRow.row.battery + " %" : "")
+          : btRow.pending === "connecting" || btRow.row.state === 3 || btRow.row.pairing ? root.t("btConnecting") : ""
+        visible: status !== ""
+        width: parent.width
+        textFormat: Text.PlainText
+        elide: Text.ElideRight
+        text: status
+        color: btRow.busy ? Color.accent : root.dim
+        font.family: root.font
+        font.pixelSize: Style.font.caption
+      }
+    }
+    Row {
+      id: btActions
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Style.space(6)
+      Button {
+        visible: btRow.row.section !== "available"
+        text: btRow.asking ? root.t("btReallyForget") : ""
+        iconText: "󰅙"
+        bordered: true
+        foreground: btRow.asking ? Color.urgent : root.fg
+        fontFamily: root.font
+        fontSize: Style.font.caption
+        tooltipText: btRow.asking ? "" : root.t("btForget")
+        enabled: btRow.pending === ""
+        onClicked: root.btForget(btRow.row)
+      }
+      Button {
+        text: btRow.row.connected ? root.t("btDisconnect") : btRow.row.section === "available" ? root.t("btPair") : root.t("btConnect")
+        iconText: btRow.row.connected ? "󰂲" : "󰂱"
+        bordered: true
+        foreground: root.fg
+        fontFamily: root.font
+        fontSize: Style.font.caption
+        enabled: !btRow.busy
+        onClicked: btRow.row.connected ? root.btDisconnect(btRow.row) : root.btConnect(btRow.row)
+      }
+    }
+  }
+
   KeyboardPanel {
     id: panel
     anchorItem: root.anchorItem
@@ -248,8 +478,12 @@ Panel {
       anchors.fill: parent
       // Open dropdown lists take their own keys.
       blocked: languagePicker.popupOpen || lowPicker.popupOpen || criticalPicker.popupOpen
-      onCloseRequested: { if (root.settingsOpen) root.settingsOpen = false; else root.close() }
-      onTextKey: function(text) { if (text === "\b" && root.settingsOpen) root.settingsOpen = false }
+      onCloseRequested: { if (root.settingsOpen) root.settingsOpen = false; else if (root.btOpen) root.btOpen = false; else root.close() }
+      onTextKey: function(text) {
+        if (text !== "\b") return
+        if (root.settingsOpen) root.settingsOpen = false
+        else if (root.btOpen) root.btOpen = false
+      }
       onTabRequested: function(direction) { root.switchPanel(direction) }
 
       Flickable {
@@ -278,7 +512,7 @@ Panel {
               // As tall as the hero text, with the gear centred on the title
               // row so it lines up with the detail pill.
               Item {
-                visible: !root.settingsOpen
+                visible: !root.settingsOpen && !root.btOpen
                 implicitWidth: eyeButton.width + Style.space(6) + gearButton.width
                 implicitHeight: heroTitle.implicitHeight + Style.space(2) + heroMeta.implicitHeight
                 Text { id: heroTitle; visible: false; textFormat: Text.PlainText; text: "W"; font.family: root.font; font.pixelSize: Style.font.title; font.bold: true }
@@ -491,9 +725,110 @@ Panel {
             }
           }
 
+          // ------------------------------------------------------------ Bluetooth
+          Column {
+            visible: root.btOpen && !root.settingsOpen
+            width: parent.width
+            spacing: Style.space(10)
+
+            PanelSeparator { width: parent.width; foreground: root.fg }
+
+            Item {
+              width: parent.width
+              height: Math.max(btBackRow.implicitHeight, btPowerRow.implicitHeight)
+              Row {
+                id: btBackRow
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(12)
+                Button {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: root.t("back") + " · \u232b"
+                  iconText: "\udb80\udc4d"
+                  bordered: true
+                  foreground: root.fg
+                  fontFamily: root.font
+                  tooltipText: root.t("backTip")
+                  onClicked: root.btOpen = false
+                }
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  textFormat: Text.PlainText
+                  text: root.t("bluetooth").toUpperCase()
+                  color: root.fg
+                  font.family: root.font
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  font.letterSpacing: 1
+                }
+              }
+              Row {
+                id: btPowerRow
+                visible: !!root.btAdapter
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(8)
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  textFormat: Text.PlainText
+                  text: root.btScanning ? root.t("btScanningShort") : root.btEnabled ? root.t("btOn") : root.t("btOffState")
+                  color: root.btScanning ? Color.accent : root.dim
+                  font.family: root.font
+                  font.pixelSize: Style.font.caption
+                }
+                ToggleSwitch {
+                  id: btPowerSwitch
+                  anchors.verticalCenter: parent.verticalCenter
+                  cursorRing: false
+                  trackHeight: Style.space(18)
+                  checked: root.btEnabled
+                  foreground: root.fg
+                  onToggled: root.btPower(!root.btEnabled)
+                  PanelToolTip {
+                    visible: btPowerSwitch.containsMouse
+                    text: root.btEnabled ? root.t("btTurnOff") : root.t("btTurnOn")
+                    fontFamily: root.font
+                  }
+                }
+              }
+            }
+
+            Repeater {
+              model: ["connected", "paired", "available"]
+              Column {
+                id: btSection
+                required property string modelData
+                readonly property var rows: root.btRows[modelData] || []
+                visible: rows.length > 0
+                width: parent.width
+                spacing: Style.space(8)
+                PanelSeparator { width: parent.width; foreground: root.fg }
+                PanelSectionHeader {
+                  text: root.t(btSection.modelData === "connected" ? "btSecConnected" : btSection.modelData === "paired" ? "btSecPaired" : "btSecAvailable").toUpperCase()
+                  foreground: root.fg
+                  fontFamily: root.font
+                }
+                Repeater {
+                  model: btSection.rows
+                  BtRow { required property var modelData; row: modelData; width: btSection.width }
+                }
+              }
+            }
+
+            Text {
+              visible: root.btRows.connected.length + root.btRows.paired.length + root.btRows.available.length === 0 || (root.btScanning && root.btRows.available.length === 0)
+              width: parent.width
+              textFormat: Text.PlainText
+              wrapMode: Text.WordWrap
+              text: !root.btAdapter ? root.t("btNoAdapter") : !root.btEnabled ? root.t("btOffHint") : root.t("btScanning")
+              color: root.dim
+              font.family: root.font
+              font.pixelSize: Style.font.caption
+            }
+          }
+
           // ------------------------------------------------------------ main view
           Column {
-            visible: !root.settingsOpen
+            visible: !root.settingsOpen && !root.btOpen
             width: parent.width
             spacing: Style.space(10)
 
@@ -1125,12 +1460,7 @@ Panel {
               foreground: root.fg
               fontFamily: root.font
               tooltipText: root.t("bluetoothTip")
-              onClicked: {
-                root.close()
-                // Third-party plugins may not summon built-in panels directly, so go
-                // through the shell CLI (fixed argv, no shell string), like WLAN Monitor.
-                Quickshell.execDetached(["omarchy-shell", "shell", "summon", "omarchy.bluetooth", "{}"])
-              }
+              onClicked: root.btOpen = true
             }
           }
           }
