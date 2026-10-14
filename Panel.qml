@@ -116,6 +116,7 @@ Panel {
     var b = dev.battery
     if (b && b.charging) return where + " · " + t("charging")
     if (b && b.status === "full" && b.external_power) return where + " · " + t("charged")
+    if (!b) return where + " · " + t("noBattery")
     return where
   }
 

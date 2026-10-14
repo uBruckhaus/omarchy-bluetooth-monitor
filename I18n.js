@@ -89,6 +89,7 @@ var STRINGS = {
       "charging": "charging",
       "charged": "charged",
       "notConnected": "not connected",
+      "noBattery": "no battery reading",
       "slotN": "slot {0}",
       "connectedOf": "{0} of {1} devices connected",
       "receiversN": [
@@ -195,6 +196,7 @@ var STRINGS = {
       "charging": "lädt",
       "charged": "geladen",
       "notConnected": "nicht verbunden",
+      "noBattery": "kein Akkustand",
       "slotN": "Platz {0}",
       "connectedOf": "{0} von {1} Geräten verbunden",
       "receiversN": [
@@ -301,6 +303,7 @@ var STRINGS = {
       "charging": "en charge",
       "charged": "chargé",
       "notConnected": "non connecté",
+      "noBattery": "pas de niveau de batterie",
       "slotN": "emplacement {0}",
       "connectedOf": "{0} sur {1} appareils connectés",
       "receiversN": [
@@ -407,6 +410,7 @@ var STRINGS = {
       "charging": "cargando",
       "charged": "cargado",
       "notConnected": "no conectado",
+      "noBattery": "sin nivel de batería",
       "slotN": "ranura {0}",
       "connectedOf": "{0} de {1} dispositivos conectados",
       "receiversN": [
@@ -513,6 +517,7 @@ var STRINGS = {
       "charging": "in carica",
       "charged": "carico",
       "notConnected": "non connesso",
+      "noBattery": "nessun livello di batteria",
       "slotN": "slot {0}",
       "connectedOf": "{0} di {1} dispositivi connessi",
       "receiversN": [
@@ -619,6 +624,7 @@ var STRINGS = {
       "charging": "a carregar",
       "charged": "carregado",
       "notConnected": "não ligado",
+      "noBattery": "sem nível de bateria",
       "slotN": "posição {0}",
       "connectedOf": "{0} de {1} dispositivos ligados",
       "receiversN": [
@@ -725,6 +731,7 @@ var STRINGS = {
       "charging": "laadt",
       "charged": "opgeladen",
       "notConnected": "niet verbonden",
+      "noBattery": "geen batterijstand",
       "slotN": "plek {0}",
       "connectedOf": "{0} van {1} apparaten verbonden",
       "receiversN": [
@@ -831,6 +838,7 @@ var STRINGS = {
       "charging": "ładuje się",
       "charged": "naładowane",
       "notConnected": "niepołączone",
+      "noBattery": "brak poziomu baterii",
       "slotN": "gniazdo {0}",
       "connectedOf": "Połączone urządzenia: {0} z {1}",
       "receiversN": [

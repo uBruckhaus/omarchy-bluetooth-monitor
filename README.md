@@ -38,7 +38,8 @@ The gear in the panel opens the settings page (back with the button, Backspace o
 - **Low / critical battery warning**: when the bar icon turns orange / red (25 % and 10 %
   by default)
 - **Other Bluetooth devices**: show trackpads, earphones, controllers and other devices
-  that report a battery (on by default)
+  (on by default). Connected Bluetooth devices that report no battery, such as AirPods, are
+  listed with "no battery reading"
 - **Receiver access**: whether Logitech receivers can be read, with the button to allow it
 
 Choices are stored in the widget's own entry in `~/.config/omarchy/shell.json`.
@@ -83,7 +84,9 @@ sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hi
 - `scripts/bluetooth-monitor.py` (Python standard library) runs while the widget is loaded. It
   talks HID++ to Logitech receivers and devices over `/dev/hidraw` (pairing slots, names,
   battery, DPI, SmartShift, wheel and Fn settings) and reads other devices' batteries from
-  `upower --dump`. A `upower --monitor` child, tied to the helper's lifetime, triggers a rescan
+  `upower --dump`, and connected Bluetooth peripherals without a battery reading from BlueZ
+  (`busctl --system call org.bluez / … GetManagedObjects`, read only, output capped). A
+  `upower --monitor` child, tied to the helper's lifetime, triggers a rescan
   when a device connects or a battery changes; otherwise it checks every 60 s (10 s while the
   panel is open).
 - The Bluetooth adapter counts as built in when it is not on USB, sits on a fixed USB port,
@@ -93,7 +96,7 @@ sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hi
   control characters removed.
 
 **Privacy:** the plugin makes no network requests. It reads sysfs, `/dev/hidraw` of Logitech
-devices and UPower, and writes only `~/.config/omarchy/bluetooth-monitor/settings.json` (the
+devices, UPower and BlueZ's device list, and writes only `~/.config/omarchy/bluetooth-monitor/settings.json` (the
 Logitech settings you changed) and its entry in `shell.json`.
 
 ## Update or remove
@@ -117,8 +120,8 @@ python3 -m unittest discover -s tests
 omarchy plugin validate .
 ```
 
-The tests cover HID++ parsing (pairing slots, DPI ranges, battery features), UPower output,
-adapter detection, a flooding device, endless or silent child processes and markup in device
+The tests cover HID++ parsing (pairing slots, DPI ranges, battery features), UPower and BlueZ
+output, adapter detection, a flooding device, endless or silent child processes and markup in device
 names. `I18n.js` is generated from a shared translation table by the author's i18n tool.
 
 ## License

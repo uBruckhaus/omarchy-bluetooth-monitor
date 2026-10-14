@@ -306,5 +306,51 @@ class Limits(unittest.TestCase):
             self.assertLessEqual(len(n), ld.MAX_NAME)
 
 
+
+def bluez_dump(objects):
+    def dev(**props):
+        types = {bool: "b", str: "s"}
+        return {"org.bluez.Device1": {k: {"type": types[type(v)], "data": v} for k, v in props.items()}}
+    return json.dumps({"type": "a{oa{sa{sv}}}", "data": [{p: dev(**props) for p, props in objects.items()}]})
+
+
+class BluezTest(unittest.TestCase):
+    DUMP = bluez_dump({
+        "/org/bluez/hci0/dev_F8_73_DF_22_16_63": dict(Name="AirPods Max", Alias="AirPods Max", Icon="audio-headphones",
+                                                      Connected=True, Paired=True, Address="F8:73:DF:22:16:63"),
+        "/org/bluez/hci0/dev_DB_96_17_76_34_5D": dict(Name="MX KEYS S", Alias="MX KEYS S", Icon="input-keyboard",
+                                                      Connected=True, Paired=True, Address="DB:96:17:76:34:5D"),
+        "/org/bluez/hci0/dev_3C_FA_06_24_D0_C7": dict(Name="Xbox Wireless Controller", Icon="input-gaming",
+                                                      Connected=False, Paired=True, Address="3C:FA:06:24:D0:C7"),
+        "/org/bluez/hci0/dev_D4_8D_26_7D_9D_85": dict(Name="TV", Connected=True, Paired=False, Address="D4:8D:26:7D:9D:85"),
+        "/org/bluez/hci0/dev_11_22_33_44_55_66": dict(Name="Laptop", Icon="computer", Connected=True, Paired=True,
+                                                      Address="11:22:33:44:55:66"),
+    })
+
+    def test_only_paired_connected_peripherals(self):
+        devs = {d["name"]: d for d in ld.parse_bluez(self.DUMP)}
+        self.assertEqual(sorted(devs), ["AirPods Max", "MX KEYS S"])
+        air = devs["AirPods Max"]
+        self.assertEqual((air["kind"], air["key"], air["battery"], air["connection"]),
+                         ("headset", "bt:F8:73:DF:22:16:63", None, "bluetooth"))
+
+    def test_merge_skips_devices_shown_elsewhere(self):
+        hidpp = [{"name": "MX Keys S"}]
+        upower = [{"name": "Other", "native": "/org/bluez/hci0/dev_F8_73_DF_22_16_63"}]
+        self.assertEqual(ld.merge_bluez(hidpp + upower, ld.parse_bluez(self.DUMP)), [])
+
+    def test_garbage_and_hostile_input(self):
+        for text in ("", "not json", "[]", '{"data": []}', '{"data": [42]}', '{"data": [{"/x": 1}]}'):
+            self.assertEqual(ld.parse_bluez(text), [])
+        dump = bluez_dump({"/org/bluez/hci0/dev_1": dict(Alias="<img src=x>\x1b[31m" + "A" * 500, Icon="audio-headset",
+                                                         Connected=True, Paired=True, Address="AA:BB:CC:DD:EE:FF")})
+        name = ld.parse_bluez(dump)[0]["name"]
+        self.assertNotIn("<", name)
+        self.assertLessEqual(len(name), ld.MAX_NAME)
+        many = bluez_dump({"/org/bluez/hci0/dev_%04d" % i: dict(Name="D%d" % i, Icon="input-mouse", Connected=True,
+                                                                Paired=True, Address="00:00:00:00:%02X:%02X" % (i // 256, i % 256))
+                           for i in range(1000)})
+        self.assertLessEqual(len(ld.parse_bluez(many)), ld.MAX_BLUEZ)
+
 if __name__ == "__main__":
     unittest.main()

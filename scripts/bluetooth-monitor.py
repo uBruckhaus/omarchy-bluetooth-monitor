@@ -703,6 +703,65 @@ def merge_upower(hidpp_devices, upower_devices):
     return [d for d in upower_devices if d["name"].casefold() not in known]
 
 
+# ---------------------------------------------------------------------------- BlueZ
+
+# Connected Bluetooth peripherals that report no battery anywhere (AirPods and other
+# Apple headphones keep theirs to Apple's own protocol), by BlueZ's device icon.
+BLUEZ_KINDS = {
+    "audio-headphones": "headset", "audio-headset": "headset", "audio-card": "speaker",
+    "input-keyboard": "keyboard", "input-mouse": "mouse", "input-tablet": "tablet",
+    "input-gaming": "gamepad", "phone": "phone", "camera-video": "camera",
+    "camera-photo": "camera", "multimedia-player": "media", "": "device",
+}
+MAX_BLUEZ = 256
+BLUEZ_DUMP = ["busctl", "--system", "--json=short", "call", "org.bluez", "/",
+              "org.freedesktop.DBus.ObjectManager", "GetManagedObjects"]
+
+
+def parse_bluez(text):
+    """Paired, connected peripherals from BlueZ's GetManagedObjects (busctl JSON)."""
+    try:
+        objects = json.loads(text)["data"][0]
+    except (ValueError, KeyError, IndexError, TypeError):
+        return []
+    if not isinstance(objects, dict):
+        return []
+    out = []
+    for path in sorted(objects)[:MAX_BLUEZ]:
+        ifaces = objects[path]
+        dev = ifaces.get("org.bluez.Device1") if isinstance(ifaces, dict) else None
+        if not isinstance(dev, dict):
+            continue
+        def val(key, default=None):
+            v = dev.get(key)
+            return v.get("data", default) if isinstance(v, dict) else default
+        if val("Paired") is not True or val("Connected") is not True:
+            continue
+        icon = val("Icon", "")
+        kind = BLUEZ_KINDS.get(icon if isinstance(icon, str) else "")
+        if not kind:
+            continue  # computers, network gear and the like are no peripherals
+        address = clean(str(val("Address", "") or ""), 17)
+        name = clean(str(val("Alias", "") or val("Name", "") or ""))
+        if not address or not name:
+            continue
+        out.append({
+            "id": "bt-" + address.replace(":", ""),
+            "key": "bt:" + address.upper(),
+            "kind": kind, "name": name, "online": True, "source": "bluez",
+            "battery": None, "receiver": None, "slot": None,
+            "native": clean(str(path), 120), "connection": "bluetooth",
+        })
+    return out
+
+
+def merge_bluez(devices, bluez_devices):
+    """BlueZ entries not already shown through HID++ or UPower (same name or same BlueZ path)."""
+    names = {d["name"].casefold() for d in devices if d.get("name")}
+    paths = {d.get("native") for d in devices if d.get("native")}
+    return [d for d in bluez_devices if d["name"].casefold() not in names and d["native"] not in paths]
+
+
 # ---------------------------------------------------------------------------- settings store
 
 class SettingsStore:
@@ -841,6 +900,7 @@ class Monitor:
             n.events.clear()  # replies to our own requests are not news
         if self.other_devices:
             devices.extend(merge_upower(devices, parse_upower(run_bounded(["upower", "--dump"]))))
+            devices.extend(merge_bluez(devices, parse_bluez(run_bounded(BLUEZ_DUMP))))
         adapters = bt_adapters()
         for d in devices:
             if d.get("connection") == "bluetooth":
