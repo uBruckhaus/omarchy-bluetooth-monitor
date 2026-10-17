@@ -3,6 +3,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui as Ui
 import "I18n.js" as I18n
 
@@ -113,7 +114,7 @@ Ui.BarWidget {
   // Theme colours (colors.toml), like the other status indicators in the bar.
   property color green: "#66c98b"
   property color orange: "#f0a35e"
-  property color red: Color.urgent
+  property color red: Commons.Color.urgent
   FileView {
     path: (Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state") + "/omarchy/current/theme/colors.toml"
     watchChanges: true
@@ -222,7 +223,7 @@ Ui.BarWidget {
     bar: root.bar
     text: root.kindGlyph(root.batteryAlert.kind)
     dimmed: root.onlineCount === 0
-    foreground: root.onlineCount === 0 ? (root.bar ? root.bar.barForeground : Color.foreground) : root.stateColor(root.batteryAlert.state)
+    foreground: root.onlineCount === 0 ? (root.bar ? root.bar.barForeground : Commons.Color.foreground) : root.stateColor(root.batteryAlert.state)
     tooltipText: root.opened ? "" : root.summary
     onPressed: function(code) {
       if (code === Qt.LeftButton) root.toggle()

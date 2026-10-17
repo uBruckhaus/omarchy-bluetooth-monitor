@@ -5,6 +5,7 @@ import Quickshell.Io
 import Quickshell.Bluetooth
 import Quickshell.Services.Pipewire
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "I18n.js" as I18n
 
@@ -55,7 +56,7 @@ Panel {
   function connName(code) { return code ? t("conn_" + code) : "" }
   // Receiver access is missing while some Logitech node could not be opened.
   readonly property bool accessMissing: (stats.denied || []).length > 0
-  readonly property color fg: Color.popups.text
+  readonly property color fg: Commons.Color.popups.text
   readonly property color dim: Qt.darker(fg, 1.45)
   readonly property string font: root.bar ? root.bar.fontFamily : Style.font.family
   property color green: "#66c98b"
@@ -398,7 +399,7 @@ Panel {
       width: Style.space(26)
       textFormat: Text.PlainText
       text: root.btKindIcon(btRow.row.icon, btRow.row.connected)
-      color: btRow.row.connected ? Color.accent : root.dim
+      color: btRow.row.connected ? Commons.Color.accent : root.dim
       font.family: root.font
       font.pixelSize: Style.font.title
     }
@@ -429,7 +430,7 @@ Panel {
         textFormat: Text.PlainText
         elide: Text.ElideRight
         text: status
-        color: btRow.busy ? Color.accent : root.dim
+        color: btRow.busy ? Commons.Color.accent : root.dim
         font.family: root.font
         font.pixelSize: Style.font.caption
       }
@@ -444,7 +445,7 @@ Panel {
         text: btRow.asking ? root.t("btReallyForget") : ""
         iconText: "󰅙"
         bordered: true
-        foreground: btRow.asking ? Color.urgent : root.fg
+        foreground: btRow.asking ? Commons.Color.urgent : root.fg
         fontFamily: root.font
         fontSize: Style.font.caption
         tooltipText: btRow.asking ? "" : root.t("btForget")
@@ -562,7 +563,7 @@ Panel {
               Text {
                 textFormat: Text.PlainText
                 text: "󰍽"
-                color: root.onlineCount() > 0 ? Color.accent : root.dim
+                color: root.onlineCount() > 0 ? Commons.Color.accent : root.dim
                 font.family: root.font
                 font.pixelSize: Style.font.display
               }
@@ -772,7 +773,7 @@ Panel {
                   anchors.verticalCenter: parent.verticalCenter
                   textFormat: Text.PlainText
                   text: root.btScanning ? root.t("btScanningShort") : root.btEnabled ? root.t("btOn") : root.t("btOffState")
-                  color: root.btScanning ? Color.accent : root.dim
+                  color: root.btScanning ? Commons.Color.accent : root.dim
                   font.family: root.font
                   font.pixelSize: Style.font.caption
                 }
@@ -839,9 +840,9 @@ Panel {
             width: parent.width
             height: setupColumn.implicitHeight + Style.space(20)
             radius: Style.cornerRadius
-            color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.12)
+            color: Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.12)
             border.width: 1
-            border.color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.4)
+            border.color: Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.4)
             Column {
               id: setupColumn
               x: Style.space(10); y: Style.space(10)
@@ -885,7 +886,7 @@ Panel {
             text: root.phase === "none" ? root.t("noneText")
               : root.phase === "error" ? root.t("error", [String(root.stats.error || "")])
               : root.stats.message_code ? root.t(root.stats.message_code, root.stats.message_args || []) : ""
-            color: root.phase === "none" ? root.dim : Color.urgent
+            color: root.phase === "none" ? root.dim : Commons.Color.urgent
             font.family: root.font
             font.pixelSize: Style.font.caption
           }
@@ -904,12 +905,12 @@ Panel {
               id: pcBadge
               width: root.nodeSize; height: width
               radius: Style.cornerRadius > 0 ? width / 2 : 0
-              color: Color.accent
+              color: Commons.Color.accent
               Text {
                 anchors.centerIn: parent
                 textFormat: Text.PlainText
                 text: "󰍹"
-                color: Color.background
+                color: Commons.Color.background
                 font.family: root.font
                 font.pixelSize: Style.font.body
               }
@@ -938,7 +939,7 @@ Panel {
               readonly property var link: root.links[index] || ({ devices: [] })
               readonly property bool last: index === root.links.length - 1
               readonly property bool live: link.online > 0
-              readonly property color lineColor: live ? Color.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.25)
+              readonly property color lineColor: live ? Commons.Color.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.25)
               readonly property real trunkX: root.nodeSize / 2 - 1
               readonly property real badgeX: root.nodeSize + Style.space(8)
               width: column.width
@@ -969,7 +970,7 @@ Panel {
                   id: linkBadge
                   width: root.nodeSize; height: width
                   radius: Style.cornerRadius > 0 ? Style.space(6) : 0
-                  color: linkRow.live ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.2) : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.06)
+                  color: linkRow.live ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.2) : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.06)
                   border.width: 1
                   border.color: linkRow.lineColor
                   // Small corner mark for Bluetooth: built into the PC, or a USB stick.
@@ -980,7 +981,7 @@ Panel {
                     anchors.margins: -Style.space(4)
                     width: Style.space(15); height: width
                     radius: width / 2
-                    color: Color.popups.background
+                    color: Commons.Color.popups.background
                     border.width: 1
                     border.color: linkRow.lineColor
                     Text {
@@ -1054,7 +1055,7 @@ Panel {
                         model: 4
                         delegate: Rectangle {
                           width: Style.space(3); height: width; radius: width / 2
-                          color: chip.dev.online ? Color.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.25)
+                          color: chip.dev.online ? Commons.Color.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.25)
                         }
                       }
                     }
@@ -1064,9 +1065,9 @@ Panel {
                       width: parent.width - x
                       height: chipRow.implicitHeight + Style.space(8)
                       radius: Style.cornerRadius > 0 ? height / 2 : 0
-                      color: chip.dev.online ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.12) : "transparent"
+                      color: chip.dev.online ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.12) : "transparent"
                       border.width: 1
-                      border.color: chip.dev.online ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.45) : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.12)
+                      border.color: chip.dev.online ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.45) : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.12)
                       Row {
                         id: chipRow
                         x: Style.space(8)
@@ -1140,11 +1141,11 @@ Panel {
               height: cardColumn.implicitHeight + 2 * pad
               radius: Style.cornerRadius
               color: dev.online
-                ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, cardHover.hovered ? 0.14 : 0.09)
+                ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, cardHover.hovered ? 0.14 : 0.09)
                 : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, cardHover.hovered ? 0.07 : 0.04)
               border.width: 1
               border.color: dev.online
-                ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.35)
+                ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.35)
                 : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.08)
               HoverHandler { id: cardHover }
 
@@ -1166,12 +1167,12 @@ Panel {
                     width: Style.space(34)
                     height: width
                     radius: Style.cornerRadius > 0 ? width / 2 : 0
-                    color: card.dev.online ? Color.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.08)
+                    color: card.dev.online ? Commons.Color.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.08)
                     Text {
                       textFormat: Text.PlainText
                       anchors.centerIn: parent
                       text: root.kindIcon(card.dev.kind)
-                      color: card.dev.online ? Color.background : root.dim
+                      color: card.dev.online ? Commons.Color.background : root.dim
                       font.family: root.font
                       font.pixelSize: Style.font.body * 1.15
                     }
@@ -1313,7 +1314,7 @@ Panel {
                     minimum: card.dev.dpi ? card.dev.dpi.min : 0
                     maximum: card.dev.dpi ? card.dev.dpi.max : 1
                     step: card.dev.dpi && card.dev.dpi.step > 0 ? card.dev.dpi.step : 50
-                    fillColor: Color.accent
+                    fillColor: Commons.Color.accent
                     value: card.dev.dpi ? card.dev.dpi.value : 0
                     onReleased: function(v) { root.set(card.dev, "dpi", Math.round(v)) }
                     onRightClicked: if (card.dev.dpi) root.set(card.dev, "dpi", card.dev.dpi.default)
@@ -1369,7 +1370,7 @@ Panel {
                       minimum: 1
                       maximum: 50
                       step: 1
-                      fillColor: Color.accent
+                      fillColor: Commons.Color.accent
                       value: card.dev.smartshift && card.dev.smartshift.threshold ? card.dev.smartshift.threshold : 10
                       onReleased: function(v) { root.set(card.dev, "threshold", Math.round(v)) }
                     }
