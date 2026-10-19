@@ -44,6 +44,8 @@ The gear in the panel opens the settings page (back with the button, Backspace o
 
 Choices are stored in the widget's own entry in `~/.config/omarchy/shell.json`.
 
+The **ⓘ** button beside the gear opens an **Information** page with a card for each of the author's other plugins in the Omarchy Plugin Marketplace, with a short description in the panel's language. A click on a card opens that plugin's marketplace page in the browser (a fixed `https://plugins.omarchy.org/plugin.html?id=…` address); nothing is downloaded. **← Back**, Backspace or Esc returns.
+
 ## Install
 
 Requires Omarchy's plugin-capable Quickshell, `python3` (standard library only) and UPower
