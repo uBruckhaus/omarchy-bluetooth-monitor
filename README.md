@@ -44,7 +44,7 @@ The gear in the panel opens the settings page (back with the button, Backspace o
 
 Choices are stored in the widget's own entry in `~/.config/omarchy/shell.json`.
 
-The **ⓘ** button beside the gear opens an **Information** page with a card for each of the author's other plugins in the Omarchy Plugin Marketplace, with a short description in the panel's language. A click on a card opens that plugin's marketplace page in the browser (a fixed `https://plugins.omarchy.org/plugin.html?id=…` address); nothing is downloaded. **← Back**, Backspace or Esc returns.
+The **ⓘ** button beside the gear opens an **Information** page with a card for each of the author's other plugins in the Omarchy Plugin Marketplace, with a short description in the panel's language. A click on a card opens that plugin's marketplace page in the browser (a fixed `https://plugins.omarchy.org/plugin.html?id=…` address). The list comes from the marketplace's catalog, so newly published plugins of the author appear without a Bluetooth Monitor update; a plugin this version does not know yet shows the first sentence of its marketplace description, in English (see *Information page* below). **← Back**, Backspace or Esc returns.
 
 ## Install
 
@@ -97,9 +97,11 @@ sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hi
 - Device names come from the devices themselves; they are shown as plain text with markup and
   control characters removed.
 
-**Privacy:** the plugin makes no network requests. It reads sysfs, `/dev/hidraw` of Logitech
+**Privacy:** the plugin makes one kind of network request, for the Information page (below). It reads sysfs, `/dev/hidraw` of Logitech
 devices, UPower and BlueZ's device list, and writes only `~/.config/omarchy/bluetooth-monitor/settings.json` (the
-Logitech settings you changed) and its entry in `shell.json`.
+Logitech settings you changed), its entry in `shell.json` and the Information page's cache described below.
+
+**Information page (ⓘ):** the plugin's only network request. Started only when the page is shown (a request in progress finishes even if you leave the page), `plugin_catalog.py` reads the marketplace's catalog `https://raw.githubusercontent.com/omacom/omarchy-plugin-marketplace/main/site/catalog.json` with `curl --proto =https --max-redirs 0` (at most 40 MiB and 40 s, and with the last `ETag`, so an unchanged catalog is not downloaded again), at most once an hour per panel, failed attempts included (kept on disk, and by the panel itself while the shell runs; two panels opened in the same moment may each ask once). Only the author's own entries (repositories under `github.com/ubruckhaus`, at most 60) are kept, as id, name, version, description text and the verified flag, with the time of the last check and the `ETag`, in `~/.cache/ubruckhaus.bluetooth-monitor/plugin-catalog.json` (the folder must be yours, not a link and closed to others — it is made `0700` if missing, otherwise nothing is read or written; file `0600`, written atomically inside that folder; read back only as a regular file of yours, at most 1 MiB). No device names, addresses, battery levels or other local data are sent; GitHub sees the usual request details (your public IP address, the fixed user agent and the `ETag`). Offline, the cached list or the built-in one is shown.
 
 ## Update or remove
 
@@ -113,7 +115,7 @@ omarchy plugin remove ubruckhaus.bluetooth-monitor
 rm -r ~/.config/omarchy/bluetooth-monitor   # remembered Logitech settings, if any
 ```
 
-If you allowed receiver access, remove the udev rule as shown under Permissions.
+If you allowed receiver access, remove the udev rule as shown under Permissions. The Information page's plugin list is cached in `~/.cache/ubruckhaus.bluetooth-monitor/`; delete that folder too if you like (it is only a cache).
 
 ## Development
 
