@@ -25,6 +25,7 @@ because some devices forget them when they power off.
 import errno
 import glob
 import json
+import math
 import os
 import select
 import signal
@@ -518,11 +519,29 @@ def dpi_range(choices):
     return {"min": choices[0], "max": choices[-1], "step": 0, "choices": choices}
 
 
+def whole_number(value):
+    """A whole number from a panel command: JSON numbers only (no booleans, strings,
+    NaN or infinity), so a hostile value fails with ValueError and nothing else."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("not a number")
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("not a number")
+        value = round(value)
+    return value
+
+
+def switch_value(value):
+    if not isinstance(value, bool):
+        raise ValueError("not on/off")
+    return value
+
+
 def valid_dpi(dpi, value):
     """A DPI the device offers: one of its listed choices, or a step inside its range."""
     if not isinstance(dpi, dict):
         raise ValueError("no DPI setting")
-    value = int(value)
+    value = whole_number(value)
     choices = [c for c in dpi.get("choices") or [] if isinstance(c, int)]
     if choices:
         return min(choices, key=lambda c: abs(c - value))
@@ -802,9 +821,13 @@ class SettingsStore:
         self.save()
 
     def save(self):
+        """Best effort: an unwritable settings folder only means the change is not kept."""
         d = os.path.dirname(self.path)
-        os.makedirs(d, mode=0o700, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(prefix=".settings-", dir=d)
+        try:
+            os.makedirs(d, mode=0o700, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(prefix=".settings-", dir=d)
+        except OSError:
+            return
         try:
             with os.fdopen(fd, "w") as f:
                 json.dump(self.data, f, indent=2, sort_keys=True)
@@ -980,31 +1003,41 @@ class Monitor:
             if mode in ("smartshift", "ratchet", "freespin"):
                 dev.set_smartshift(mode, threshold if mode == "smartshift" else None)
             elif threshold is not None:
-                dev.set_smartshift("smartshift", int(threshold))
-        except (HidppError, Timeout, ValueError, TypeError):
+                dev.set_smartshift("smartshift", whole_number(threshold))
+        except (HidppError, Timeout, ValueError, TypeError, OverflowError):
             pass
         for field, value in saved.items():
             try:
                 self.apply(dev, field, value, remember=None)
-            except (HidppError, Timeout, ValueError, TypeError):
+            except (HidppError, Timeout, ValueError, TypeError, OverflowError):
                 continue
 
     def apply(self, dev, key, value, remember):
+        """Write one setting; every value is checked (and normalised, which is also what
+        gets saved) before anything goes to the device."""
         if key == "dpi":
-            dev.set_dpi(int(value))
+            value = whole_number(value)
+            if not 0 < value <= 0xFFFF:
+                raise ValueError("DPI out of range")
+            dev.set_dpi(value)
         elif key == "smartshift":
-            if value not in ("smartshift", "ratchet", "freespin"):
+            if not isinstance(value, str) or value not in ("smartshift", "ratchet", "freespin"):
                 raise ValueError(key)
             threshold = self.store.get(remember).get("threshold") if remember else None
+            try:
+                threshold = max(1, min(50, whole_number(threshold))) if threshold is not None else None
+            except ValueError:
+                threshold = None
             dev.set_smartshift(value, threshold)
         elif key == "threshold":
-            dev.set_smartshift("smartshift", int(value))
+            value = max(1, min(50, whole_number(value)))
+            dev.set_smartshift("smartshift", value)
         elif key == "invert":
-            dev.set_wheel_bit(0x04, bool(value))
+            dev.set_wheel_bit(0x04, switch_value(value))
         elif key == "hires":
-            dev.set_wheel_bit(0x02, bool(value))
+            dev.set_wheel_bit(0x02, switch_value(value))
         elif key == "fnswap":
-            dev.set_fnswap(bool(value))
+            dev.set_fnswap(switch_value(value))
         else:
             raise ValueError(key)
         if remember:
@@ -1018,12 +1051,12 @@ class Monitor:
         if not dev or not entry or not entry.get("online"):
             self.note("errNotConnected")
             return
-        if key == "dpi":
-            value = valid_dpi(entry.get("dpi"), value)
         try:
+            if key == "dpi":
+                value = valid_dpi(entry.get("dpi"), value)
             self.apply(dev, key, value, remember=entry["key"])
             self.note("")
-        except (HidppError, Timeout, ValueError, TypeError) as e:
+        except (HidppError, Timeout, ValueError, TypeError, OverflowError) as e:
             self.note("errChange", clean(str(e) or "no answer", 80))
 
     def note(self, code, *args):
@@ -1109,7 +1142,14 @@ class Monitor:
                 *lines, pending = pending.split(b"\n")
                 pending = pending[-65536:]
                 for line in lines:
-                    self.handle(line.decode("utf-8", "replace"))
+                    try:
+                        self.handle(line.decode("utf-8", "replace"))
+                    except Exception as e:  # one bad command must never end the helper
+                        try:
+                            print(f"bluetooth-monitor: command ignored: {clean(repr(e), 200)}",
+                                  file=sys.stderr, flush=True)
+                        except Exception:
+                            pass
                 next_scan = min(next_scan, time.monotonic() + 0.05)
             if watch_proc and watch_proc.stdout in r:
                 chunk = os.read(watch_proc.stdout.fileno(), 4096)
@@ -1124,7 +1164,7 @@ class Monitor:
     def handle(self, line):
         try:
             msg = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError):  # bad or absurdly nested JSON: ignore it
             return
         if not isinstance(msg, dict):
             return

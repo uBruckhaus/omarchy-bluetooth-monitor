@@ -1,4 +1,6 @@
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import tempfile
@@ -410,6 +412,135 @@ class ReviewFixes(unittest.TestCase):
         self.assertEqual(ld.valid_dpi({"min": 200, "max": 8000, "step": 50}, 99999), 8000)
         with self.assertRaises(ValueError):
             ld.valid_dpi(None, 800)
+
+
+class HostileCommands(unittest.TestCase):
+    """Panel commands with bad values or bad JSON never end the helper or reach the device."""
+
+    class RecordingDev:
+        def __init__(self):
+            self.calls = []
+
+        def __getattr__(self, name):
+            if name.startswith("set_"):
+                return lambda *a: self.calls.append((name, a))
+            raise AttributeError(name)
+
+    def monitor(self, dpi=None, store_dir=None):
+        m = ld.Monitor.__new__(ld.Monitor)
+        m.store = ld.SettingsStore(path=os.path.join(store_dir or tempfile.mkdtemp(), "s.json"))
+        m.dev = self.RecordingDev()
+        m.devices = {"d1": m.dev}
+        entry = {"id": "d1", "key": "k", "online": True}
+        if dpi is not None:
+            entry["dpi"] = dpi
+        m.snapshot = {"devices": [entry]}
+        m.opened, m.other_devices, m.message, m.message_args = False, True, "", []
+        return m
+
+    def send(self, m, key, raw_value):
+        m.handle('{"cmd": "set", "device": "d1", "key": "%s", "value": %s}' % (key, raw_value))
+
+    def test_bad_dpi_values_are_rejected(self):
+        dpi = {"min": 200, "max": 8000, "step": 50}
+        for raw in ("null", '"abc"', "1e400", "-1e400", "NaN", "Infinity", "[1]", "{}", "true"):
+            m = self.monitor(dpi)
+            self.send(m, "dpi", raw)
+            self.assertEqual(m.dev.calls, [], raw)
+            self.assertEqual(m.message, "errChange", raw)
+            self.assertEqual(m.store.get("k"), {}, raw)
+
+    def test_dpi_on_a_device_without_dpi(self):
+        for dpi in (None, {}, {"choices": "x"}, {"min": "a", "max": "b"}):
+            m = self.monitor(dpi)
+            self.send(m, "dpi", "800")
+            self.assertEqual(m.dev.calls, [], dpi)
+            self.assertEqual(m.message, "errChange", dpi)
+
+    def test_huge_integer_dpi_is_clamped(self):
+        m = self.monitor({"min": 200, "max": 8000, "step": 50})
+        self.send(m, "dpi", "9" * 400)
+        self.assertEqual(m.dev.calls, [("set_dpi", (8000,))])
+
+    def test_bad_threshold_values_are_rejected(self):
+        for raw in ("null", '"abc"', "1e400", "NaN", "Infinity", "[1]", "true"):
+            m = self.monitor()
+            self.send(m, "threshold", raw)
+            self.assertEqual(m.dev.calls, [], raw)
+            self.assertEqual(m.message, "errChange", raw)
+
+    def test_switches_take_only_booleans(self):
+        for key in ("invert", "hires", "fnswap"):
+            m = self.monitor()
+            self.send(m, key, '"%s"' % ("x" * 1000))
+            self.assertEqual(m.dev.calls, [], key)
+            self.assertEqual(m.message, "errChange", key)
+            self.assertEqual(m.store.get("k"), {}, key)
+        m = self.monitor()
+        self.send(m, "invert", "true")
+        self.assertEqual(m.store.get("k"), {"invert": True})
+
+    def test_bad_wheel_mode_and_saved_threshold(self):
+        m = self.monitor()
+        self.send(m, "smartshift", '["ratchet"]')
+        self.assertEqual(m.dev.calls, [])
+        m.store.data["k"] = {"threshold": "zz"}
+        self.send(m, "smartshift", '"smartshift"')
+        self.assertEqual(m.dev.calls, [("set_smartshift", ("smartshift", None))])
+
+    def test_threshold_is_clamped_before_it_is_saved(self):
+        m = self.monitor()
+        self.send(m, "threshold", "9" * 400)
+        self.assertEqual(m.dev.calls, [("set_smartshift", ("smartshift", 50))])
+        self.assertEqual(m.store.get("k")["threshold"], 50)
+
+    def test_unwritable_settings_folder_keeps_the_helper_running(self):
+        base = tempfile.mkdtemp()
+        blocker = os.path.join(base, "cfg")
+        open(blocker, "w").close()  # a file where the settings folder should be
+        m = self.monitor(store_dir=blocker)
+        self.send(m, "invert", "true")
+        self.assertEqual(m.dev.calls, [("set_wheel_bit", (0x04, True))])
+
+    def test_deeply_nested_json_is_ignored(self):
+        m = self.monitor()
+        m.handle("[" * 200000 + "]" * 200000)
+        m.handle('{"cmd": "open"}')
+        self.assertTrue(m.opened)
+
+    def test_unknown_types_in_commands(self):
+        m = self.monitor()
+        for line in ('{"cmd": ["set"]}', '{"cmd": "set", "device": {"a": 1}, "key": [1]}',
+                     '{"cmd": "options", "other_devices": [[]]}', '"set"', "1e400", "\ud800"):
+            m.handle(line)
+        self.assertEqual(m.dev.calls, [])
+
+    def test_loop_survives_a_failing_command(self):
+        m = ld.Monitor.__new__(ld.Monitor)
+        m.watch_proc, m.nodes, m.opened, m.snapshot, handled = None, {}, False, {}, []
+        m.scan, m.emit = (lambda: None), (lambda: None)
+
+        def handle(line):
+            if "boom" in line:
+                raise RuntimeError("boom")
+            handled.append(line)
+        m.handle = handle
+        read_fd, write_fd = os.pipe()
+        stdin = os.fdopen(read_fd, "r")
+        worker = threading.Thread(target=m.loop, args=(stdin,), daemon=True)
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            worker.start()
+            os.write(write_fd, b'boom\n{"cmd": "open"}\n')
+            deadline = time.monotonic() + 2
+            while not handled and time.monotonic() < deadline:
+                time.sleep(0.02)
+            alive = worker.is_alive()
+            os.close(write_fd)
+            worker.join(2)
+        self.assertIn("command ignored", err.getvalue())
+        stdin.close()
+        self.assertTrue(alive)
+        self.assertEqual(handled, ['{"cmd": "open"}'])
 
 
 if __name__ == "__main__":
