@@ -90,6 +90,7 @@ DRAIN_BUDGET = 512        # reports read per drain; a flooding device cannot sta
 CLOSED_INTERVAL = 60.0
 OPEN_INTERVAL = 10.0
 MAX_NAME = 64
+MAX_COMMAND = 65536  # longest panel command line; longer ones are dropped whole
 
 
 class HidppError(Exception):
@@ -245,7 +246,9 @@ class Node:
             if r[2] == b2 and r[3] == b3:
                 if echo is not None and r[4] != echo:
                     continue
-                return r[4:]
+                # Padded to a long report's payload, so a short or truncated reply reads
+                # as zeros instead of raising IndexError in the field parsers.
+                return bytes(r[4:]).ljust(LONG_LEN - 4, b"\0")
             self.note_event(r)
 
 
@@ -1123,6 +1126,7 @@ class Monitor:
     def loop(self, stdin):
         next_scan = 0.0
         pending = b""
+        skipping = False  # inside an oversized line: dropped up to its newline
         watch_proc = self.watch_proc
         fds = [stdin]
         if watch_proc:
@@ -1153,8 +1157,14 @@ class Monitor:
                     return
                 pending += chunk
                 *lines, pending = pending.split(b"\n")
-                pending = pending[-65536:]
+                if lines and skipping:
+                    lines.pop(0)  # the rest of the oversized line
+                    skipping = False
+                if len(pending) > MAX_COMMAND:
+                    pending, skipping = b"", True
                 for line in lines:
+                    if len(line) > MAX_COMMAND:
+                        continue
                     try:
                         self.handle(line.decode("utf-8", "replace"))
                     except Exception as e:  # one bad command must never end the helper

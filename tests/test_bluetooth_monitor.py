@@ -531,6 +531,55 @@ class HostileCommands(unittest.TestCase):
             self.assertEqual(ld.SettingsStore(path=path).data, {}, path)
         self.assertEqual(ld.SettingsStore(path=real).data, {"k": {"invert": True}})
 
+    def run_loop(self, writes, want):
+        m = ld.Monitor.__new__(ld.Monitor)
+        m.watch_proc, m.nodes, m.opened, m.snapshot, handled = None, {}, False, {}, []
+        m.scan, m.emit = (lambda: None), (lambda: None)
+        m.handle = lambda line: handled.append(line)
+        read_fd, write_fd = os.pipe()
+        stdin = os.fdopen(read_fd, "r")
+        worker = threading.Thread(target=m.loop, args=(stdin,), daemon=True)
+        worker.start()
+        for data in writes:
+            os.write(write_fd, data)
+            time.sleep(0.05)
+        deadline = time.monotonic() + 2
+        while len(handled) < want and time.monotonic() < deadline:
+            time.sleep(0.02)
+        os.close(write_fd)
+        worker.join(2)
+        stdin.close()
+        return handled
+
+    def test_oversized_line_is_dropped_whole(self):
+        # Its valid-looking tail must not run as a command once the newline comes.
+        junk = b"x" * (ld.MAX_COMMAND + 10)
+        got = self.run_loop([junk, b'{"cmd": "set"}', b'\n{"cmd": "open"}\n'], 1)
+        self.assertEqual(got, ['{"cmd": "open"}'])
+        got = self.run_loop([junk + b'{"cmd": "set"}\n{"cmd": "open"}\n'], 1)
+        self.assertEqual(got, ['{"cmd": "open"}'])
+
+    def test_short_device_replies_read_as_zeros(self):
+        class Node(ld.Node):
+            def __init__(self, reply):
+                self.reply, self.fd, self.events = reply, -1, []
+
+            def drain(self):
+                pass
+
+            def _read(self, timeout):
+                return self.reply
+
+        orig = ld.os.write
+        ld.os.write = lambda fd, data: len(data)
+        try:
+            payload = Node(bytes([ld.SHORT, 1, 5, 0x10 | ld.SW_ID, 7, 8, 9])).request(1, 5, 0x10 | ld.SW_ID)
+        finally:
+            ld.os.write = orig
+        self.assertEqual(len(payload), ld.LONG_LEN - 4)
+        self.assertEqual(payload[:3], bytes([7, 8, 9]))
+        self.assertEqual(payload[7], 0)
+
     def test_loop_survives_a_failing_command(self):
         m = ld.Monitor.__new__(ld.Monitor)
         m.watch_proc, m.nodes, m.opened, m.snapshot, handled = None, {}, False, {}, []
