@@ -29,6 +29,7 @@ import math
 import os
 import select
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -805,12 +806,24 @@ class SettingsStore:
         self.path = path or os.path.join(config_dir(), "settings.json")
         self.data = {}
         try:
-            with open(self.path, "rb") as f:
-                raw = json.loads(f.read(256 * 1024).decode("utf-8"))
+            raw = json.loads(self.read_own_file(self.path, 256 * 1024).decode("utf-8"))
             if isinstance(raw, dict):
                 self.data = {str(k): v for k, v in raw.items() if isinstance(v, dict)}
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
             pass
+
+    @staticmethod
+    def read_own_file(path, limit):
+        """A regular file of ours, not a symlink, FIFO or device (those would hang or
+        mislead the start-up)."""
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
+                raise OSError("not a settings file")
+            return os.read(fd, limit)
+        finally:
+            os.close(fd)
 
     def get(self, key):
         return dict(self.data.get(key, {}))

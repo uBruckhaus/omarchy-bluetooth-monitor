@@ -515,6 +515,22 @@ class HostileCommands(unittest.TestCase):
             m.handle(line)
         self.assertEqual(m.dev.calls, [])
 
+    def test_odd_settings_files_are_ignored(self):
+        d = tempfile.mkdtemp()
+        fifo = os.path.join(d, "fifo.json")
+        os.mkfifo(fifo)
+        nested = os.path.join(d, "nested.json")
+        with open(nested, "w") as f:
+            f.write("[" * 100000 + "]" * 100000)
+        real = os.path.join(d, "real.json")
+        with open(real, "w") as f:
+            json.dump({"k": {"invert": True}}, f)
+        link = os.path.join(d, "link.json")
+        os.symlink(real, link)
+        for path in (fifo, nested, link):
+            self.assertEqual(ld.SettingsStore(path=path).data, {}, path)
+        self.assertEqual(ld.SettingsStore(path=real).data, {"k": {"invert": True}})
+
     def test_loop_survives_a_failing_command(self):
         m = ld.Monitor.__new__(ld.Monitor)
         m.watch_proc, m.nodes, m.opened, m.snapshot, handled = None, {}, False, {}, []
