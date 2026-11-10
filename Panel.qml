@@ -8,6 +8,7 @@ import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
 import "I18n.js" as I18n
+import "corners.js" as Corners
 
 // Logitech Devices popup: one card per device (battery, connection) that expands to
 // its settings (DPI, SmartShift, scroll wheel, Fn keys), then the receivers with their
@@ -53,6 +54,14 @@ Panel {
   readonly property string systemLang: hostWidget ? hostWidget.systemLang : "en"
   function t(key, args) { return I18n.tr(lang, key, args) }
   function tn(key, n, args) { return I18n.trn(lang, key, n, args) }
+
+  // Corners (radius: cards, popups; control: buttons, drop-downs, fields; small: tracks,
+  // swatches; pill: round dots or square ones) and the F12 screenshot key, from the widget's
+  // shell.json entry. The panel's frame is the shell's card and keeps Style.cornerRadius.
+  readonly property string cornersSetting: hostWidget ? hostWidget.cornersSetting : "windows"
+  readonly property var corners: Corners.sizes(cornersSetting, Style.cornerRadius)
+  readonly property bool screenshotKey: hostWidget ? hostWidget.screenshotKey : true
+  readonly property real settingsLabelWidth: Style.space(170)  // the battery level rows
   function deviceName(dev) { return dev.name || t("unnamed") }
   function connName(code) { return code ? t("conn_" + code) : "" }
   // Receiver access is missing while some Logitech node could not be opened.
@@ -442,6 +451,7 @@ Panel {
       anchors.verticalCenter: parent.verticalCenter
       spacing: Style.space(6)
       Button {
+        radius: root.corners.control
         visible: btRow.row.section !== "available"
         text: btRow.asking ? root.t("btReallyForget") : ""
         iconText: "󰅙"
@@ -454,6 +464,7 @@ Panel {
         onClicked: root.btForget(btRow.row)
       }
       Button {
+        radius: root.corners.control
         text: btRow.row.connected ? root.t("btDisconnect") : btRow.row.section === "available" ? root.t("btPair") : root.t("btConnect")
         iconText: btRow.row.connected ? "󰂲" : "󰂱"
         bordered: true
@@ -474,341 +485,154 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(440))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight)
+    // At least as tall as the screenshot note overlay while it shows.
+    contentHeight: panel.fittedContentHeight(Math.max(column.implicitHeight, shot.neededHeight))
 
-    PanelKeyCatcher {
-      id: keyCatcher
+    // F12: a screenshot of this panel into ~/Pictures/Bluetooth Monitor, then an optional note
+    // (PanelShot.qml, shared; the keys the catcher leaves alone come up to it).
+    PanelShot {
+      id: shot
       anchors.fill: parent
-      // Open dropdown lists take their own keys.
-      blocked: languagePicker.popupOpen || lowPicker.popupOpen || criticalPicker.popupOpen
-      onCloseRequested: { if (root.infoOpen) root.infoOpen = false; else if (root.settingsOpen) root.settingsOpen = false; else if (root.btOpen) root.btOpen = false; else root.close() }
-      onTextKey: function(text) {
-        if (text === "\b" && root.infoOpen) { root.infoOpen = false; return }
-        if (text !== "\b") return
-        if (root.settingsOpen) root.settingsOpen = false
-        else if (root.btOpen) root.btOpen = false
-      }
-      onTabRequested: function(direction) { root.switchPanel(direction) }
+      pluginId: "ubruckhaus.bluetooth-monitor"
+      folderName: "Bluetooth Monitor"
+      active: root.screenshotKey
+      panelOpen: root.opened
+      returnFocus: keyCatcher
+      lang: root.lang
+      fg: root.fg
+      dim: root.dim
+      fontFamily: root.font
+      corners: root.corners
 
-      Flickable {
-        id: scroller
+        PanelKeyCatcher {
+        id: keyCatcher
         anchors.fill: parent
-        contentWidth: width
-        contentHeight: column.implicitHeight
-        clip: true
-        boundsBehavior: Flickable.StopAtBounds
-        interactive: contentHeight > height
+        // Open dropdown lists take their own keys.
+        // Typing in the note overlay must reach its field.
+        blocked: shot.overlayOpen || languagePicker.popupOpen || cornersPicker.popupOpen || lowPicker.popupOpen || criticalPicker.popupOpen
+        onCloseRequested: { if (root.infoOpen) root.infoOpen = false; else if (root.settingsOpen) root.settingsOpen = false; else if (root.btOpen) root.btOpen = false; else root.close() }
+        onTextKey: function(text) {
+          if (text === "\b" && root.infoOpen) { root.infoOpen = false; return }
+          if (text !== "\b") return
+          if (root.settingsOpen) root.settingsOpen = false
+          else if (root.btOpen) root.btOpen = false
+        }
+        onTabRequested: function(direction) { root.switchPanel(direction) }
 
-        Column {
-          id: column
-          width: scroller.width
-          spacing: Style.space(10)
+        Flickable {
+          id: scroller
+          anchors.fill: parent
+          contentWidth: width
+          contentHeight: column.implicitHeight
+          clip: true
+          boundsBehavior: Flickable.StopAtBounds
+          interactive: contentHeight > height
 
-          PanelHero {
-            foreground: root.fg
-            fontFamily: root.font
-            title: "Bluetooth Monitor"
-            meta: root.phase === "ok"
-              ? root.t("connectedOf", [root.onlineCount(), root.shownDevices.length]) + (root.receivers.length ? " · " + root.tn("receiversN", root.receivers.length, [root.receivers.length]) : "")
-              : root.phase === "permission" ? root.t("accessNeeded") : root.phase === "none" ? root.t("nothingFound") : root.t("looking")
-            detail: root.lowest ? root.t("lowestBattery", [root.lowest.percent]) : ""
-            trailingControl: Component {
-              // As tall as the hero text, with the gear centred on the title
-              // row so it lines up with the detail pill.
-              Item {
-                visible: !root.settingsOpen && !root.btOpen && !root.infoOpen
-                implicitWidth: gearButton.x + gearButton.width
-                implicitHeight: heroTitle.implicitHeight + Style.space(2) + heroMeta.implicitHeight
-                Text { id: heroTitle; visible: false; textFormat: Text.PlainText; text: "W"; font.family: root.font; font.pixelSize: Style.font.title; font.bold: true }
-                Text { id: heroBody; visible: false; textFormat: Text.PlainText; text: "W"; font.family: root.font; font.pixelSize: Style.font.body; font.bold: true }
-                Text { id: heroMeta; visible: false; textFormat: Text.PlainText; text: "W"; font.family: root.font; font.pixelSize: Style.font.caption; font.bold: true }
-                // Eye: show / hide the hidden devices; the count says how many there are.
-                Button {
-                  id: eyeButton
-                  visible: root.hiddenCount > 0 || root.showHidden
-                  width: visible ? implicitWidth : -Style.space(6)
-                  y: Math.round((heroTitle.implicitHeight - height) / 2)
-                  height: heroBody.implicitHeight + Style.space(4)
-                  iconText: root.showHidden ? "󰈉" : "󰈈"
-                  text: root.showHidden ? "" : String(root.hiddenCount)
-                  selected: root.showHidden
-                  bordered: true
-                  iconSize: Style.font.body
-                  fontSize: Style.font.caption
-                  horizontalPadding: Style.space(5)
-                  verticalPadding: Style.space(1)
-                  foreground: root.fg
-                  fontFamily: root.font
-                  tooltipText: root.showHidden ? root.t("hideHidden") : root.t("showHidden", [root.hiddenCount])
-                  onClicked: root.showHidden = !root.showHidden
-                }
-                Button {
-                  id: infoButton
-                  x: eyeButton.width + Style.space(6)
-                  y: gearButton.y
-                  height: gearButton.height
-                  width: height
-                  iconText: "\u{F02FC}"
-                  bordered: true
-                  iconSize: Style.font.body
-                  horizontalPadding: Style.space(4)
-                  verticalPadding: Style.space(1)
-                  foreground: root.fg
-                  fontFamily: root.font
-                  tooltipText: root.t("information")
-                  onClicked: root.infoOpen = true
-                }
-                Button {
-                  id: gearButton
-                  x: infoButton.x + infoButton.width + Style.space(6)
-                  y: Math.round((heroTitle.implicitHeight - height) / 2)
-                  // The pill is its body text plus Style.space(4); a square gear of that height.
-                  height: heroBody.implicitHeight + Style.space(4)
-                  width: height
-                  iconText: "\udb81\udc93"
-                  bordered: true
-                  iconSize: Style.font.body
-                  horizontalPadding: Style.space(4)
-                  verticalPadding: Style.space(1)
-                  foreground: root.fg
-                  fontFamily: root.font
-                  tooltipText: root.t("settings")
-                  onClicked: root.settingsOpen = true
-                }
-              }
-            }
-            iconComponent: Component {
-              Text {
-                textFormat: Text.PlainText
-                text: "󰍽"
-                color: root.onlineCount() > 0 ? Commons.Color.accent : root.dim
-                font.family: root.font
-                font.pixelSize: Style.font.display
-              }
-            }
-          }
-
-
-          // ---------------------------------------------------------------- information
           Column {
-            visible: root.infoOpen
-            width: parent.width
-            spacing: Style.space(12)
-
-            PanelSeparator { width: parent.width; foreground: root.fg }
-
-            Row {
-              spacing: Style.space(12)
-              Button {
-                anchors.verticalCenter: parent.verticalCenter
-                text: root.t("back") + " · \u232b"
-                iconText: "\udb80\udc4d"
-                bordered: true
-                foreground: root.fg
-                fontFamily: root.font
-                tooltipText: root.t("backTip")
-                onClicked: root.infoOpen = false
-              }
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                textFormat: Text.PlainText
-                text: root.t("information").toUpperCase()
-                color: root.fg
-                font.family: root.font
-                font.pixelSize: Style.font.caption
-                font.bold: true
-                font.letterSpacing: 1
-              }
-            }
-            PanelSeparator { width: parent.width; foreground: root.fg }
-
-            MorePlugins {
-              width: parent.width
-              separated: false
-              ownId: "ubruckhaus.bluetooth-monitor"
-              // The list from the marketplace's catalog when the page shows (plugin_catalog.py).
-              catalogScript: decodeURIComponent(Qt.resolvedUrl("plugin_catalog.py").toString().replace(/^file:\/\//, ""))
-              lang: root.lang
-              fg: root.fg
-              dim: root.dim
-              fontFamily: root.font
-              onOpened: root.close()
-            }
-          }
-
-          // ------------------------------------------------------------ settings
-          Column {
-            visible: root.settingsOpen
-            width: parent.width
-            spacing: Style.space(12)
-
-            PanelSeparator { width: parent.width; foreground: root.fg }
-
-            Row {
-              spacing: Style.space(12)
-              Button {
-                anchors.verticalCenter: parent.verticalCenter
-                text: root.t("back") + " · \u232b"
-                iconText: "\udb80\udc4d"
-                bordered: true
-                foreground: root.fg
-                fontFamily: root.font
-                tooltipText: root.t("backTip")
-                onClicked: root.settingsOpen = false
-              }
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                textFormat: Text.PlainText
-                text: root.t("settings").toUpperCase()
-                color: root.fg
-                font.family: root.font
-                font.pixelSize: Style.font.caption
-                font.bold: true
-                font.letterSpacing: 1
-              }
-            }
-            PanelSeparator { width: parent.width; foreground: root.fg }
-
-            Row {
-              spacing: Style.space(10)
-              Text {
-                id: languageLabel
-                anchors.verticalCenter: parent.verticalCenter
-                width: Style.space(170)
-                textFormat: Text.PlainText
-                wrapMode: Text.WordWrap
-                text: root.t("language")
-                color: root.dim
-                font.family: root.font
-                font.pixelSize: Style.font.caption
-              }
-              CompactDropdown {
-                id: languagePicker
-                anchors.verticalCenter: parent.verticalCenter
-                // Wide enough for the longest option, plus padding and the chevron.
-                width: fitWidth
-                fontSize: Style.font.caption
-                rowHeight: languageLabel.implicitHeight + Style.space(6)
-                popupRowHeight: languageLabel.implicitHeight + Style.space(8)
-                showLabel: false
-                fontFamily: root.font
-                options: [{ value: "auto", label: root.t("systemLanguage", [I18n.languageName(root.systemLang)]) }]
-                  .concat(I18n.LANGUAGES.map(function(l) { return { value: l.code, label: l.name } }))
-                value: root.languageSetting
-                // Picking cuts the value binding inside the dropdown; restore it.
-                onChanged: function(picked) {
-                  if (root.hostWidget) root.hostWidget.setLanguage(picked)
-                  languagePicker.value = Qt.binding(function() { return root.languageSetting })
-                }
-              }
-            }
-
-            Row {
-              spacing: Style.space(10)
-              Text {
-                id: lowLabel
-                anchors.verticalCenter: parent.verticalCenter
-                width: Style.space(170)
-                textFormat: Text.PlainText
-                wrapMode: Text.WordWrap
-                text: root.t("lowAt")
-                color: root.dim
-                font.family: root.font
-                font.pixelSize: Style.font.caption
-              }
-              CompactDropdown {
-                id: lowPicker
-                anchors.verticalCenter: parent.verticalCenter
-                width: fitWidth
-                fontSize: Style.font.caption
-                rowHeight: languageLabel.implicitHeight + Style.space(6)
-                popupRowHeight: languageLabel.implicitHeight + Style.space(8)
-                showLabel: false
-                fontFamily: root.font
-                options: [15, 20, 25, 30, 40, 50].map(function(v) { return { value: String(v), label: root.t("atOrBelow", [v]) } })
-                value: String(root.hostWidget ? root.hostWidget.lowAt : 25)
-                onChanged: function(picked) {
-                  if (root.hostWidget) root.hostWidget.setOption("lowAt", Number(picked), 25)
-                  lowPicker.value = Qt.binding(function() { return String(root.hostWidget ? root.hostWidget.lowAt : 25) })
-                }
-              }
-            }
-
-            Row {
-              spacing: Style.space(10)
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                width: Style.space(170)
-                textFormat: Text.PlainText
-                wrapMode: Text.WordWrap
-                text: root.t("criticalAt")
-                color: root.dim
-                font.family: root.font
-                font.pixelSize: Style.font.caption
-              }
-              CompactDropdown {
-                id: criticalPicker
-                anchors.verticalCenter: parent.verticalCenter
-                width: fitWidth
-                fontSize: Style.font.caption
-                rowHeight: languageLabel.implicitHeight + Style.space(6)
-                popupRowHeight: languageLabel.implicitHeight + Style.space(8)
-                showLabel: false
-                fontFamily: root.font
-                options: [5, 10, 15, 20].map(function(v) { return { value: String(v), label: root.t("atOrBelow", [v]) } })
-                value: String(root.hostWidget ? root.hostWidget.criticalAt : 10)
-                onChanged: function(picked) {
-                  if (root.hostWidget) root.hostWidget.setOption("criticalAt", Number(picked), 10)
-                  criticalPicker.value = Qt.binding(function() { return String(root.hostWidget ? root.hostWidget.criticalAt : 10) })
-                }
-              }
-            }
-
-
-            SettingRow {
-              label: root.t("otherDevices")
-              hint: root.t("otherDevicesHint")
-              ToggleSwitch {
-                cursorRing: false
-                trackHeight: Style.space(18)
-                checked: !root.hostWidget || root.hostWidget.otherDevices
-                foreground: root.fg
-                onToggled: if (root.hostWidget) root.hostWidget.setOption("otherDevices", !root.hostWidget.otherDevices, true)
-              }
-            }
-
-            SettingRow {
-              label: root.t("access")
-              hint: root.accessMissing ? root.t("accessMissing") : root.t("accessGranted")
-              Button {
-                visible: root.accessMissing
-                text: root.hostWidget && root.hostWidget.allowing ? root.t("waitingPassword") : root.t("allowAccess")
-                iconText: "󰌋"
-                bordered: true
-                foreground: root.fg
-                fontFamily: root.font
-                enabled: !(root.hostWidget && root.hostWidget.allowing)
-                onClicked: if (root.hostWidget) root.hostWidget.allowAccess()
-              }
-            }
-          }
-
-          // ------------------------------------------------------------ Bluetooth
-          Column {
-            visible: root.btOpen && !root.settingsOpen
-            width: parent.width
+            id: column
+            width: scroller.width
             spacing: Style.space(10)
 
-            PanelSeparator { width: parent.width; foreground: root.fg }
+            PanelHero {
+              foreground: root.fg
+              fontFamily: root.font
+              title: "Bluetooth Monitor"
+              meta: root.phase === "ok"
+                ? root.t("connectedOf", [root.onlineCount(), root.shownDevices.length]) + (root.receivers.length ? " · " + root.tn("receiversN", root.receivers.length, [root.receivers.length]) : "")
+                : root.phase === "permission" ? root.t("accessNeeded") : root.phase === "none" ? root.t("nothingFound") : root.t("looking")
+              detail: root.lowest ? root.t("lowestBattery", [root.lowest.percent]) : ""
+              trailingControl: Component {
+                // As tall as the hero text, with the gear centred on the title
+                // row so it lines up with the detail pill.
+                Item {
+                  visible: !root.settingsOpen && !root.btOpen && !root.infoOpen
+                  implicitWidth: gearButton.x + gearButton.width
+                  implicitHeight: heroTitle.implicitHeight + Style.space(2) + heroMeta.implicitHeight
+                  Text { id: heroTitle; visible: false; textFormat: Text.PlainText; text: "W"; font.family: root.font; font.pixelSize: Style.font.title; font.bold: true }
+                  Text { id: heroBody; visible: false; textFormat: Text.PlainText; text: "W"; font.family: root.font; font.pixelSize: Style.font.body; font.bold: true }
+                  Text { id: heroMeta; visible: false; textFormat: Text.PlainText; text: "W"; font.family: root.font; font.pixelSize: Style.font.caption; font.bold: true }
+                  // Eye: show / hide the hidden devices; the count says how many there are.
+                  Button {
+                    id: eyeButton
+                    radius: root.corners.control
+                    visible: root.hiddenCount > 0 || root.showHidden
+                    width: visible ? implicitWidth : -Style.space(6)
+                    y: Math.round((heroTitle.implicitHeight - height) / 2)
+                    height: heroBody.implicitHeight + Style.space(4)
+                    iconText: root.showHidden ? "󰈉" : "󰈈"
+                    text: root.showHidden ? "" : String(root.hiddenCount)
+                    selected: root.showHidden
+                    bordered: true
+                    iconSize: Style.font.body
+                    fontSize: Style.font.caption
+                    horizontalPadding: Style.space(5)
+                    verticalPadding: Style.space(1)
+                    foreground: root.fg
+                    fontFamily: root.font
+                    tooltipText: root.showHidden ? root.t("hideHidden") : root.t("showHidden", [root.hiddenCount])
+                    onClicked: root.showHidden = !root.showHidden
+                  }
+                  Button {
+                    id: infoButton
+                    radius: root.corners.control
+                    x: eyeButton.width + Style.space(6)
+                    y: gearButton.y
+                    height: gearButton.height
+                    width: height
+                    iconText: "\u{F02FC}"
+                    bordered: true
+                    iconSize: Style.font.body
+                    horizontalPadding: Style.space(4)
+                    verticalPadding: Style.space(1)
+                    foreground: root.fg
+                    fontFamily: root.font
+                    tooltipText: root.t("information")
+                    onClicked: root.infoOpen = true
+                  }
+                  Button {
+                    id: gearButton
+                    radius: root.corners.control
+                    x: infoButton.x + infoButton.width + Style.space(6)
+                    y: Math.round((heroTitle.implicitHeight - height) / 2)
+                    // The pill is its body text plus Style.space(4); a square gear of that height.
+                    height: heroBody.implicitHeight + Style.space(4)
+                    width: height
+                    iconText: "\udb81\udc93"
+                    bordered: true
+                    iconSize: Style.font.body
+                    horizontalPadding: Style.space(4)
+                    verticalPadding: Style.space(1)
+                    foreground: root.fg
+                    fontFamily: root.font
+                    tooltipText: root.t("settings")
+                    onClicked: root.settingsOpen = true
+                  }
+                }
+              }
+              iconComponent: Component {
+                Text {
+                  textFormat: Text.PlainText
+                  text: "󰍽"
+                  color: root.onlineCount() > 0 ? Commons.Color.accent : root.dim
+                  font.family: root.font
+                  font.pixelSize: Style.font.display
+                }
+              }
+            }
 
-            Item {
+
+            // ---------------------------------------------------------------- information
+            Column {
+              visible: root.infoOpen
               width: parent.width
-              height: Math.max(btBackRow.implicitHeight, btPowerRow.implicitHeight)
+              spacing: Style.space(12)
+
+              PanelSeparator { width: parent.width; foreground: root.fg }
+
               Row {
-                id: btBackRow
-                anchors.verticalCenter: parent.verticalCenter
                 spacing: Style.space(12)
                 Button {
+                  radius: root.corners.control
                   anchors.verticalCenter: parent.verticalCenter
                   text: root.t("back") + " · \u232b"
                   iconText: "\udb80\udc4d"
@@ -816,12 +640,12 @@ Panel {
                   foreground: root.fg
                   fontFamily: root.font
                   tooltipText: root.t("backTip")
-                  onClicked: root.btOpen = false
+                  onClicked: root.infoOpen = false
                 }
                 Text {
                   anchors.verticalCenter: parent.verticalCenter
                   textFormat: Text.PlainText
-                  text: root.t("bluetooth").toUpperCase()
+                  text: root.t("information").toUpperCase()
                   color: root.fg
                   font.family: root.font
                   font.pixelSize: Style.font.caption
@@ -829,708 +653,1027 @@ Panel {
                   font.letterSpacing: 1
                 }
               }
+              PanelSeparator { width: parent.width; foreground: root.fg }
+
+              MorePlugins {
+                tileRadius: root.corners.control
+                cardRadius: root.corners.radius
+                width: parent.width
+                separated: false
+                ownId: "ubruckhaus.bluetooth-monitor"
+                // The list from the marketplace's catalog when the page shows (plugin_catalog.py).
+                catalogScript: decodeURIComponent(Qt.resolvedUrl("plugin_catalog.py").toString().replace(/^file:\/\//, ""))
+                lang: root.lang
+                fg: root.fg
+                dim: root.dim
+                fontFamily: root.font
+                onOpened: root.close()
+              }
+            }
+
+            // ------------------------------------------------------------ settings
+            Column {
+              visible: root.settingsOpen
+              width: parent.width
+              spacing: Style.space(12)
+
+              PanelSeparator { width: parent.width; foreground: root.fg }
+
               Row {
-                id: btPowerRow
-                visible: !!root.btAdapter
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: Style.space(8)
+                spacing: Style.space(12)
+                Button {
+                  radius: root.corners.control
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: root.t("back") + " · \u232b"
+                  iconText: "\udb80\udc4d"
+                  bordered: true
+                  foreground: root.fg
+                  fontFamily: root.font
+                  tooltipText: root.t("backTip")
+                  onClicked: root.settingsOpen = false
+                }
                 Text {
                   anchors.verticalCenter: parent.verticalCenter
                   textFormat: Text.PlainText
-                  text: root.btScanning ? root.t("btScanningShort") : root.btEnabled ? root.t("btOn") : root.t("btOffState")
-                  color: root.btScanning ? Commons.Color.accent : root.dim
+                  text: root.t("settings").toUpperCase()
+                  color: root.fg
+                  font.family: root.font
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  font.letterSpacing: 1
+                }
+              }
+              PanelSeparator { width: parent.width; foreground: root.fg }
+
+              Row {
+                spacing: Style.space(10)
+                Text {
+                  id: languageLabel
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: root.settingsLabelWidth
+                  textFormat: Text.PlainText
+                  wrapMode: Text.WordWrap
+                  text: root.t("language")
+                  color: root.dim
                   font.family: root.font
                   font.pixelSize: Style.font.caption
                 }
-                ToggleSwitch {
-                  id: btPowerSwitch
+                CompactDropdown {
+                  id: languagePicker
+                  popupRadius: root.corners.radius
+                  controlRadius: root.corners.control
                   anchors.verticalCenter: parent.verticalCenter
+                  // Wide enough for the longest option, plus padding and the chevron.
+                  width: fitWidth
+                  fontSize: Style.font.caption
+                  rowHeight: languageLabel.implicitHeight + Style.space(6)
+                  popupRowHeight: languageLabel.implicitHeight + Style.space(8)
+                  showLabel: false
+                  fontFamily: root.font
+                  options: [{ value: "auto", label: root.t("systemLanguage", [I18n.languageName(root.systemLang)]) }]
+                    .concat(I18n.LANGUAGES.map(function(l) { return { value: l.code, label: l.name } }))
+                  value: root.languageSetting
+                  // Picking cuts the value binding inside the dropdown; restore it.
+                  onChanged: function(picked) {
+                    if (root.hostWidget) root.hostWidget.setLanguage(picked)
+                    languagePicker.value = Qt.binding(function() { return root.languageSetting })
+                  }
+                }
+              }
+
+              // Corners of the cards and controls; "Like windows" is Hyprland's rounding.
+              Column {
+                width: parent.width
+                spacing: Style.space(4)
+                Row {
+                  spacing: Style.space(10)
+                  Text {
+                    id: cornersLabel
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: root.settingsLabelWidth
+                    textFormat: Text.PlainText
+                    text: root.t("corners")
+                    wrapMode: Text.WordWrap
+                    color: root.dim
+                    font.family: root.font
+                    font.pixelSize: Style.font.caption
+                  }
+                  CompactDropdown {
+                    id: cornersPicker
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: fitWidth
+                    fontSize: Style.font.caption
+                    rowHeight: cornersLabel.implicitHeight + Style.space(6)
+                    popupRowHeight: cornersLabel.implicitHeight + Style.space(8)
+                    controlRadius: root.corners.control
+                    popupRadius: root.corners.radius
+                    showLabel: false
+                    fontFamily: root.font
+                    options: Corners.options(root.t, Style.cornerRadius)
+                    value: root.cornersSetting
+                    onChanged: function(picked) {
+                      if (root.hostWidget) root.hostWidget.setCorners(picked)
+                      cornersPicker.value = Qt.binding(function() { return root.cornersSetting })
+                    }
+                  }
+                }
+                Text {
+                  x: root.settingsLabelWidth + Style.space(10)
+                  width: parent.width - x
+                  textFormat: Text.PlainText
+                  text: root.t("cornersHint")
+                  wrapMode: Text.WordWrap
+                  color: root.dim
+                  font.family: root.font
+                  font.pixelSize: Style.font.caption
+                }
+              }
+
+              // F12 saves a screenshot of this panel (PanelShot.qml); on by default.
+              Column {
+                width: parent.width
+                spacing: Style.space(4)
+                Item {
+                  width: parent.width
+                  height: Math.max(shotLabel.implicitHeight, shotToggle.implicitHeight)
+                  Text {
+                    id: shotLabel
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: root.settingsLabelWidth
+                    textFormat: Text.PlainText
+                    text: root.t("shotKey")
+                    wrapMode: Text.WordWrap
+                    color: root.dim
+                    font.family: root.font
+                    font.pixelSize: Style.font.caption
+                  }
+                  ToggleSwitch {
+                    id: shotToggle
+                    x: root.settingsLabelWidth + Style.space(10)
+                    anchors.verticalCenter: parent.verticalCenter
+                    cursorRing: false
+                    rounded: root.corners.pill > 0
+                    checked: root.screenshotKey
+                    foreground: root.fg
+                    onToggled: if (root.hostWidget) root.hostWidget.setScreenshotKey(!root.screenshotKey)
+                  }
+                }
+                Text {
+                  x: root.settingsLabelWidth + Style.space(10)
+                  width: parent.width - x
+                  textFormat: Text.PlainText
+                  text: root.t("shotKeyHint", ["Bluetooth Monitor"])
+                  wrapMode: Text.WordWrap
+                  color: root.dim
+                  font.family: root.font
+                  font.pixelSize: Style.font.caption
+                }
+              }
+
+              Row {
+                spacing: Style.space(10)
+                Text {
+                  id: lowLabel
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: root.settingsLabelWidth
+                  textFormat: Text.PlainText
+                  wrapMode: Text.WordWrap
+                  text: root.t("lowAt")
+                  color: root.dim
+                  font.family: root.font
+                  font.pixelSize: Style.font.caption
+                }
+                CompactDropdown {
+                  id: lowPicker
+                  popupRadius: root.corners.radius
+                  controlRadius: root.corners.control
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: fitWidth
+                  fontSize: Style.font.caption
+                  rowHeight: languageLabel.implicitHeight + Style.space(6)
+                  popupRowHeight: languageLabel.implicitHeight + Style.space(8)
+                  showLabel: false
+                  fontFamily: root.font
+                  options: [15, 20, 25, 30, 40, 50].map(function(v) { return { value: String(v), label: root.t("atOrBelow", [v]) } })
+                  value: String(root.hostWidget ? root.hostWidget.lowAt : 25)
+                  onChanged: function(picked) {
+                    if (root.hostWidget) root.hostWidget.setOption("lowAt", Number(picked), 25)
+                    lowPicker.value = Qt.binding(function() { return String(root.hostWidget ? root.hostWidget.lowAt : 25) })
+                  }
+                }
+              }
+
+              Row {
+                spacing: Style.space(10)
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: root.settingsLabelWidth
+                  textFormat: Text.PlainText
+                  wrapMode: Text.WordWrap
+                  text: root.t("criticalAt")
+                  color: root.dim
+                  font.family: root.font
+                  font.pixelSize: Style.font.caption
+                }
+                CompactDropdown {
+                  id: criticalPicker
+                  popupRadius: root.corners.radius
+                  controlRadius: root.corners.control
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: fitWidth
+                  fontSize: Style.font.caption
+                  rowHeight: languageLabel.implicitHeight + Style.space(6)
+                  popupRowHeight: languageLabel.implicitHeight + Style.space(8)
+                  showLabel: false
+                  fontFamily: root.font
+                  options: [5, 10, 15, 20].map(function(v) { return { value: String(v), label: root.t("atOrBelow", [v]) } })
+                  value: String(root.hostWidget ? root.hostWidget.criticalAt : 10)
+                  onChanged: function(picked) {
+                    if (root.hostWidget) root.hostWidget.setOption("criticalAt", Number(picked), 10)
+                    criticalPicker.value = Qt.binding(function() { return String(root.hostWidget ? root.hostWidget.criticalAt : 10) })
+                  }
+                }
+              }
+
+
+              SettingRow {
+                label: root.t("otherDevices")
+                hint: root.t("otherDevicesHint")
+                ToggleSwitch {
+                  rounded: root.corners.pill > 0
                   cursorRing: false
                   trackHeight: Style.space(18)
-                  checked: root.btEnabled
+                  checked: !root.hostWidget || root.hostWidget.otherDevices
                   foreground: root.fg
-                  onToggled: root.btPower(!root.btEnabled)
-                  PanelToolTip {
-                    visible: btPowerSwitch.containsMouse
-                    text: root.btEnabled ? root.t("btTurnOff") : root.t("btTurnOn")
-                    fontFamily: root.font
-                  }
+                  onToggled: if (root.hostWidget) root.hostWidget.setOption("otherDevices", !root.hostWidget.otherDevices, true)
+                }
+              }
+
+              SettingRow {
+                label: root.t("access")
+                hint: root.accessMissing ? root.t("accessMissing") : root.t("accessGranted")
+                Button {
+                  radius: root.corners.control
+                  visible: root.accessMissing
+                  text: root.hostWidget && root.hostWidget.allowing ? root.t("waitingPassword") : root.t("allowAccess")
+                  iconText: "󰌋"
+                  bordered: true
+                  foreground: root.fg
+                  fontFamily: root.font
+                  enabled: !(root.hostWidget && root.hostWidget.allowing)
+                  onClicked: if (root.hostWidget) root.hostWidget.allowAccess()
                 }
               }
             }
 
-            Repeater {
-              model: ["connected", "paired", "available"]
-              Column {
-                id: btSection
-                required property string modelData
-                readonly property var rows: root.btRows[modelData] || []
-                visible: rows.length > 0
+            // ------------------------------------------------------------ Bluetooth
+            Column {
+              visible: root.btOpen && !root.settingsOpen
+              width: parent.width
+              spacing: Style.space(10)
+
+              PanelSeparator { width: parent.width; foreground: root.fg }
+
+              Item {
                 width: parent.width
+                height: Math.max(btBackRow.implicitHeight, btPowerRow.implicitHeight)
+                Row {
+                  id: btBackRow
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: Style.space(12)
+                  Button {
+                    radius: root.corners.control
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.t("back") + " · \u232b"
+                    iconText: "\udb80\udc4d"
+                    bordered: true
+                    foreground: root.fg
+                    fontFamily: root.font
+                    tooltipText: root.t("backTip")
+                    onClicked: root.btOpen = false
+                  }
+                  Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    textFormat: Text.PlainText
+                    text: root.t("bluetooth").toUpperCase()
+                    color: root.fg
+                    font.family: root.font
+                    font.pixelSize: Style.font.caption
+                    font.bold: true
+                    font.letterSpacing: 1
+                  }
+                }
+                Row {
+                  id: btPowerRow
+                  visible: !!root.btAdapter
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: Style.space(8)
+                  Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    textFormat: Text.PlainText
+                    text: root.btScanning ? root.t("btScanningShort") : root.btEnabled ? root.t("btOn") : root.t("btOffState")
+                    color: root.btScanning ? Commons.Color.accent : root.dim
+                    font.family: root.font
+                    font.pixelSize: Style.font.caption
+                  }
+                  ToggleSwitch {
+                    id: btPowerSwitch
+                    rounded: root.corners.pill > 0
+                    anchors.verticalCenter: parent.verticalCenter
+                    cursorRing: false
+                    trackHeight: Style.space(18)
+                    checked: root.btEnabled
+                    foreground: root.fg
+                    onToggled: root.btPower(!root.btEnabled)
+                    PanelToolTip {
+                      visible: btPowerSwitch.containsMouse
+                      text: root.btEnabled ? root.t("btTurnOff") : root.t("btTurnOn")
+                      fontFamily: root.font
+                    }
+                  }
+                }
+              }
+
+              Repeater {
+                model: ["connected", "paired", "available"]
+                Column {
+                  id: btSection
+                  required property string modelData
+                  readonly property var rows: root.btRows[modelData] || []
+                  visible: rows.length > 0
+                  width: parent.width
+                  spacing: Style.space(8)
+                  PanelSeparator { width: parent.width; foreground: root.fg }
+                  PanelSectionHeader {
+                    text: root.t(btSection.modelData === "connected" ? "btSecConnected" : btSection.modelData === "paired" ? "btSecPaired" : "btSecAvailable").toUpperCase()
+                    foreground: root.fg
+                    fontFamily: root.font
+                  }
+                  Repeater {
+                    model: btSection.rows
+                    BtRow { required property var modelData; row: modelData; width: btSection.width }
+                  }
+                }
+              }
+
+              Text {
+                visible: root.btRows.connected.length + root.btRows.paired.length + root.btRows.available.length === 0 || (root.btScanning && root.btRows.available.length === 0)
+                width: parent.width
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                text: !root.btAdapter ? root.t("btNoAdapter") : !root.btEnabled ? root.t("btOffHint") : root.t("btScanning")
+                color: root.dim
+                font.family: root.font
+                font.pixelSize: Style.font.caption
+              }
+            }
+
+            // ------------------------------------------------------------ main view
+            Column {
+              visible: !root.settingsOpen && !root.btOpen && !root.infoOpen
+              width: parent.width
+              spacing: Style.space(10)
+
+            // ------------------------------------------------------------ setup
+            Rectangle {
+              visible: root.phase === "permission"
+              width: parent.width
+              height: setupColumn.implicitHeight + Style.space(20)
+              radius: root.corners.radius
+              color: Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.12)
+              border.width: 1
+              border.color: Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.4)
+              Column {
+                id: setupColumn
+                x: Style.space(10); y: Style.space(10)
+                width: parent.width - Style.space(20)
                 spacing: Style.space(8)
-                PanelSeparator { width: parent.width; foreground: root.fg }
-                PanelSectionHeader {
-                  text: root.t(btSection.modelData === "connected" ? "btSecConnected" : btSection.modelData === "paired" ? "btSecPaired" : "btSecAvailable").toUpperCase()
+                Text {
+                  width: parent.width
+                  textFormat: Text.PlainText
+                  text: root.t("setupStep")
+                  color: root.fg
+                  font.family: root.font
+                  font.pixelSize: Style.font.body
+                  font.bold: true
+                }
+                Text {
+                  width: parent.width
+                  textFormat: Text.PlainText
+                  wrapMode: Text.WordWrap
+                  text: root.t("setupText")
+                  color: root.dim
+                  font.family: root.font
+                  font.pixelSize: Style.font.caption
+                }
+                Button {
+                  radius: root.corners.control
+                  text: root.hostWidget && root.hostWidget.allowing ? root.t("waitingPassword") : root.t("allowAccess")
+                  iconText: "󰌋"
+                  bordered: true
                   foreground: root.fg
                   fontFamily: root.font
-                }
-                Repeater {
-                  model: btSection.rows
-                  BtRow { required property var modelData; row: modelData; width: btSection.width }
+                  enabled: !(root.hostWidget && root.hostWidget.allowing)
+                  onClicked: if (root.hostWidget) root.hostWidget.allowAccess()
                 }
               }
             }
 
             Text {
-              visible: root.btRows.connected.length + root.btRows.paired.length + root.btRows.available.length === 0 || (root.btScanning && root.btRows.available.length === 0)
+              visible: text !== ""
               width: parent.width
               textFormat: Text.PlainText
               wrapMode: Text.WordWrap
-              text: !root.btAdapter ? root.t("btNoAdapter") : !root.btEnabled ? root.t("btOffHint") : root.t("btScanning")
-              color: root.dim
+              text: root.phase === "none" ? root.t("noneText")
+                : root.phase === "error" ? root.t("error", [String(root.stats.error || "")])
+                : root.stats.message_code ? root.t(root.stats.message_code, root.stats.message_args || []) : ""
+              color: root.phase === "none" ? root.dim : Commons.Color.urgent
               font.family: root.font
               font.pixelSize: Style.font.caption
             }
-          }
 
-          // ------------------------------------------------------------ main view
-          Column {
-            visible: !root.settingsOpen && !root.btOpen && !root.infoOpen
-            width: parent.width
-            spacing: Style.space(10)
+            // ------------------------------------------------------------ connections
+            // A tree: this PC, then every link (dongle, Bluetooth adapter, cable) on a solid
+            // line (plugged in), then its devices on a dotted line (radio) with their battery.
+            PanelSeparator { visible: root.links.length > 0; width: parent.width; foreground: root.fg }
+            PanelSectionHeader { visible: root.links.length > 0; text: root.t("connections").toUpperCase(); foreground: root.fg; fontFamily: root.font }
 
-          // ------------------------------------------------------------ setup
-          Rectangle {
-            visible: root.phase === "permission"
-            width: parent.width
-            height: setupColumn.implicitHeight + Style.space(20)
-            radius: Style.cornerRadius
-            color: Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.12)
-            border.width: 1
-            border.color: Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.4)
-            Column {
-              id: setupColumn
-              x: Style.space(10); y: Style.space(10)
-              width: parent.width - Style.space(20)
+            Item {
+              visible: root.links.length > 0
+              width: parent.width
+              height: pcRow.height
+              Rectangle {
+                id: pcBadge
+                width: root.nodeSize; height: width
+                radius: Math.min(root.corners.pill, width / 2)
+                color: Commons.Color.accent
+                Text {
+                  anchors.centerIn: parent
+                  textFormat: Text.PlainText
+                  text: "󰍹"
+                  color: Commons.Color.background
+                  font.family: root.font
+                  font.pixelSize: Style.font.body
+                }
+              }
+              Row {
+                id: pcRow
+                x: pcBadge.width + Style.space(10)
+                height: pcBadge.height
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  textFormat: Text.PlainText
+                  text: root.t("thisPc") + (root.hostName ? "  ·  " + root.hostName : "")
+                  color: root.fg
+                  font.family: root.font
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                }
+              }
+            }
+
+            Repeater {
+              model: root.links.length
+              delegate: Item {
+                id: linkRow
+                required property int index
+                readonly property var link: root.links[index] || ({ devices: [] })
+                readonly property bool last: index === root.links.length - 1
+                readonly property bool live: link.online > 0
+                readonly property color lineColor: live ? Commons.Color.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.25)
+                readonly property real trunkX: root.nodeSize / 2 - 1
+                readonly property real badgeX: root.nodeSize + Style.space(8)
+                width: column.width
+                height: Math.max(linkHead.height, chips.height) + Style.space(10)
+
+                // Trunk from the PC down to this link (and on to the next one).
+                Rectangle {
+                  x: linkRow.trunkX
+                  y: -column.spacing
+                  width: 2
+                  height: (linkRow.last ? linkHead.height / 2 : linkRow.height) + column.spacing
+                  color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.25)
+                }
+                // Solid branch: the dongle / adapter is plugged into this PC.
+                Rectangle {
+                  x: linkRow.trunkX
+                  y: linkHead.height / 2 - 1
+                  width: linkRow.badgeX - linkRow.trunkX
+                  height: 2
+                  color: linkRow.lineColor
+                }
+
+                Row {
+                  id: linkHead
+                  x: linkRow.badgeX
+                  spacing: Style.space(8)
+                  Rectangle {
+                    id: linkBadge
+                    width: root.nodeSize; height: width
+                    radius: root.corners.control
+                    color: linkRow.live ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.2) : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.06)
+                    border.width: 1
+                    border.color: linkRow.lineColor
+                    // Small corner mark for Bluetooth: built into the PC, or a USB stick.
+                    Rectangle {
+                      visible: linkRow.link.type === "bluetooth" && linkRow.link.builtin !== undefined
+                      anchors.right: parent.right
+                      anchors.bottom: parent.bottom
+                      anchors.margins: -Style.space(4)
+                      width: Style.space(15); height: width
+                      radius: Math.min(root.corners.pill, width / 2)
+                      color: Commons.Color.popups.background
+                      border.width: 1
+                      border.color: linkRow.lineColor
+                      Text {
+                        anchors.centerIn: parent
+                        textFormat: Text.PlainText
+                        text: linkRow.link.builtin ? "󰍹" : "󰕓"
+                        color: linkRow.live ? root.fg : root.dim
+                        font.family: root.font
+                        font.pixelSize: Style.font.caption * 0.7
+                      }
+                      z: 1
+                    }
+                    Text {
+                      anchors.centerIn: parent
+                      textFormat: Text.PlainText
+                      text: root.linkIcon(linkRow.link.type)
+                      color: linkRow.live ? root.fg : root.dim
+                      font.family: root.font
+                      font.pixelSize: Style.font.body
+                    }
+                  }
+                  Column {
+                    anchors.verticalCenter: linkBadge.verticalCenter
+                    width: root.linkLabelWidth
+                    Text {
+                      width: parent.width
+                      textFormat: Text.PlainText
+                      elide: Text.ElideRight
+                      text: linkRow.link.label
+                      color: linkRow.live ? root.fg : root.dim
+                      font.family: root.font
+                      font.pixelSize: Style.font.caption
+                      font.bold: true
+                    }
+                    Text {
+                      visible: text !== ""
+                      width: parent.width
+                      textFormat: Text.PlainText
+                      elide: Text.ElideRight
+                      text: linkRow.link.sub
+                      wrapMode: Text.WordWrap
+                      maximumLineCount: 2
+                      color: root.dim
+                      font.family: root.font
+                      font.pixelSize: Style.font.caption * 0.85
+                    }
+                  }
+                }
+
+                // Devices hang off the link on dotted lines: they talk to it by radio.
+                Column {
+                  id: chips
+                  x: linkRow.badgeX + root.nodeSize + Style.space(8) + root.linkLabelWidth + Style.space(6)
+                  width: linkRow.width - x
+                  spacing: Style.space(4)
+                  Repeater {
+                    model: linkRow.link.devices.length
+                    delegate: Item {
+                      id: chip
+                      required property int index
+                      readonly property var dev: linkRow.link.devices[index] || ({})
+                      width: chips.width
+                      opacity: root.isHidden(dev) ? 0.5 : 1
+                      height: chipBox.height
+                      // Dotted radio line from the link to the device.
+                      Row {
+                        id: dots
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Style.space(3)
+                        Repeater {
+                          model: 4
+                          delegate: Rectangle {
+                            width: Style.space(3); height: width; radius: Math.min(root.corners.pill, width / 2)
+                            color: chip.dev.online ? Commons.Color.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.25)
+                          }
+                        }
+                      }
+                      Rectangle {
+                        id: chipBox
+                        x: dots.width + Style.space(4)
+                        width: parent.width - x
+                        height: chipRow.implicitHeight + Style.space(8)
+                        radius: Math.min(root.corners.pill, height / 2)
+                        color: chip.dev.online ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.12) : "transparent"
+                        border.width: 1
+                        border.color: chip.dev.online ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.45) : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.12)
+                        Row {
+                          id: chipRow
+                          x: Style.space(8)
+                          anchors.verticalCenter: parent.verticalCenter
+                          width: parent.width - Style.space(16)
+                          spacing: Style.space(6)
+                          Text {
+                            id: chipIcon
+                            anchors.verticalCenter: parent.verticalCenter
+                            textFormat: Text.PlainText
+                            text: root.kindIcon(chip.dev.kind)
+                            color: chip.dev.online ? root.fg : root.dim
+                            font.family: root.font
+                            font.pixelSize: Style.font.caption
+                          }
+                          Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: parent.width - chipIcon.width - chipBattery.width - 2 * parent.spacing
+                            textFormat: Text.PlainText
+                            elide: Text.ElideRight
+                            text: root.deviceName(chip.dev)
+                            color: chip.dev.online ? root.fg : root.dim
+                            font.family: root.font
+                            font.pixelSize: Style.font.caption
+                          }
+                          Text {
+                            id: chipBattery
+                            anchors.verticalCenter: parent.verticalCenter
+                            textFormat: Text.PlainText
+                            text: !chip.dev.online ? root.t("deviceOff")
+                              : chip.dev.battery ? root.batteryIcon(chip.dev.battery) + " " + (chip.dev.battery.percent !== null && chip.dev.battery.percent !== undefined ? chip.dev.battery.percent + "%" : chip.dev.battery.level) : ""
+                            color: chip.dev.online ? root.batteryColor(chip.dev.battery) : root.dim
+                            font.family: root.font
+                            font.pixelSize: Style.font.caption
+                            font.bold: chip.dev.online
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+
+            Text {
+              visible: root.links.length > 0
+              width: parent.width
+              textFormat: Text.PlainText
+              wrapMode: Text.WordWrap
+              text: root.t("radioHint")
+              color: root.dim
+              font.family: root.font
+              font.pixelSize: Style.font.caption * 0.85
+            }
+
+            // ------------------------------------------------------------ devices
+            PanelSeparator { visible: root.devices.length > 0; width: parent.width; foreground: root.fg }
+            PanelSectionHeader { visible: root.devices.length > 0; text: root.t("devices").toUpperCase(); foreground: root.fg; fontFamily: root.font }
+
+            Repeater {
+              model: root.devices.length
+              delegate: Rectangle {
+                id: card
+                required property int index
+                readonly property var dev: root.deviceAt(index)
+                readonly property bool isOpen: root.expanded[dev.id] === true && dev.online && root.hasSettings(dev)
+                readonly property real pad: Style.space(10)
+                readonly property bool hiddenDev: root.isHidden(dev)
+                width: column.width
+                opacity: hiddenDev ? 0.55 : 1
+                height: cardColumn.implicitHeight + 2 * pad
+                radius: root.corners.radius
+                color: dev.online
+                  ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, cardHover.hovered ? 0.14 : 0.09)
+                  : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, cardHover.hovered ? 0.07 : 0.04)
+                border.width: 1
+                border.color: dev.online
+                  ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.35)
+                  : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.08)
+                HoverHandler { id: cardHover }
+
+                Column {
+                  id: cardColumn
+                  x: card.pad
+                  y: card.pad
+                  width: card.width - 2 * card.pad
+                  spacing: Style.space(10)
+
+                  Item {
+                    width: parent.width
+                    height: Math.max(badge.height, nameColumn.implicitHeight)
+
+                    Rectangle {
+                      id: badge
+                      anchors.left: parent.left
+                      anchors.verticalCenter: parent.verticalCenter
+                      width: Style.space(34)
+                      height: width
+                      radius: Math.min(root.corners.pill, width / 2)
+                      color: card.dev.online ? Commons.Color.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.08)
+                      Text {
+                        textFormat: Text.PlainText
+                        anchors.centerIn: parent
+                        text: root.kindIcon(card.dev.kind)
+                        color: card.dev.online ? Commons.Color.background : root.dim
+                        font.family: root.font
+                        font.pixelSize: Style.font.body * 1.15
+                      }
+                    }
+
+                    Column {
+                      id: nameColumn
+                      anchors.left: badge.right
+                      anchors.leftMargin: Style.space(10)
+                      anchors.right: batteryBox.left
+                      anchors.rightMargin: Style.space(8)
+                      anchors.verticalCenter: parent.verticalCenter
+                      Text {
+                        width: parent.width
+                        textFormat: Text.PlainText
+                        elide: Text.ElideRight
+                        text: root.deviceName(card.dev)
+                        color: card.dev.online ? root.fg : Qt.lighter(root.dim, 1.15)
+                        font.family: root.font
+                        font.pixelSize: Style.font.body
+                        font.bold: true
+                      }
+                      Text {
+                        width: parent.width
+                        textFormat: Text.PlainText
+                        elide: Text.ElideRight
+                        text: root.statusLine(card.dev) + (card.hiddenDev ? " · " + root.t("hiddenTag") : "")
+                        color: root.dim
+                        font.family: root.font
+                        font.pixelSize: Style.font.caption
+                      }
+                    }
+
+                    Row {
+                      id: batteryBox
+                      anchors.right: hideButton.left
+                      anchors.rightMargin: Style.space(6)
+                      anchors.verticalCenter: parent.verticalCenter
+                      spacing: Style.space(4)
+                      visible: card.dev.online && !!card.dev.battery
+                      Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        textFormat: Text.PlainText
+                        text: root.batteryIcon(card.dev.battery)
+                        color: root.batteryColor(card.dev.battery)
+                        font.family: root.font
+                        font.pixelSize: Style.font.body * 1.1
+                      }
+                      Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        textFormat: Text.PlainText
+                        text: card.dev.battery && card.dev.battery.percent !== null && card.dev.battery.percent !== undefined
+                          ? card.dev.battery.percent + "%" : (card.dev.battery ? card.dev.battery.level : "")
+                        color: root.batteryColor(card.dev.battery)
+                        font.family: root.font
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                      }
+                    }
+
+                    // Hide / show again, right on the card (no menu): the eye.
+                    Button {
+                      id: hideButton
+                      radius: root.corners.control
+                      anchors.right: chevron.left
+                      anchors.rightMargin: Style.space(4)
+                      anchors.verticalCenter: parent.verticalCenter
+                      z: 1
+                      iconText: card.hiddenDev ? "󰈈" : "󰈉"
+                      iconSize: Style.font.body
+                      horizontalPadding: Style.space(3)
+                      verticalPadding: Style.space(1)
+                      opacity: card.hiddenDev || cardHover.hovered ? 1 : 0.4
+                      foreground: root.fg
+                      fontFamily: root.font
+                      tooltipText: card.hiddenDev ? root.t("unhide") : root.t("hide")
+                      onClicked: root.setHidden(card.dev, !card.hiddenDev)
+                    }
+
+                    Text {
+                      id: chevron
+                      anchors.right: parent.right
+                      anchors.verticalCenter: parent.verticalCenter
+                      textFormat: Text.PlainText
+                      width: Style.space(14)
+                      horizontalAlignment: Text.AlignRight
+                      text: card.dev.online && root.hasSettings(card.dev) ? (card.isOpen ? "󰅀" : "󰅂") : ""
+                      color: headerMouse.containsMouse ? root.fg : root.dim
+                      font.family: root.font
+                      font.pixelSize: Style.font.body
+                    }
+
+                    MouseArea {
+                      id: headerMouse
+                      anchors.fill: parent
+                      enabled: card.dev.online && root.hasSettings(card.dev)
+                      hoverEnabled: true
+                      cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                      onClicked: root.toggleExpanded(card.dev)
+                    }
+                  }
+
+                  Rectangle {
+                    visible: card.isOpen
+                    width: parent.width
+                    height: 1
+                    color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.1)
+                  }
+
+                  // ---------------------------------------------- DPI
+                  Column {
+                    visible: card.isOpen && !!card.dev.dpi && card.dev.dpi.max > 0
+                    width: parent.width
+                    spacing: Style.space(4)
+                    Item {
+                      width: parent.width
+                      height: dpiLabel.implicitHeight
+                      Text {
+                        id: dpiLabel
+                        textFormat: Text.PlainText
+                        text: root.t("dpi")
+                        color: root.fg
+                        font.family: root.font
+                        font.pixelSize: Style.font.caption
+                      }
+                      Text {
+                        anchors.right: parent.right
+                        textFormat: Text.PlainText
+                        text: Math.round(dpiSlider.liveValue) + (card.dev.dpi && Math.round(dpiSlider.liveValue) === card.dev.dpi.default ? " · " + root.t("dpiDefault") : "")
+                        color: root.fg
+                        font.family: root.font
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                      }
+                    }
+                    PanelSlider {
+                      id: dpiSlider
+                      width: parent.width
+                      bar: root.bar
+                      minimum: card.dev.dpi ? card.dev.dpi.min : 0
+                      maximum: card.dev.dpi ? card.dev.dpi.max : 1
+                      step: card.dev.dpi && card.dev.dpi.step > 0 ? card.dev.dpi.step : 50
+                      fillColor: Commons.Color.accent
+                      value: card.dev.dpi ? card.dev.dpi.value : 0
+                      onReleased: function(v) { root.set(card.dev, "dpi", Math.round(v)) }
+                      onRightClicked: if (card.dev.dpi) root.set(card.dev, "dpi", card.dev.dpi.default)
+                    }
+                  }
+
+                  // ---------------------------------------------- SmartShift
+                  Column {
+                    visible: card.isOpen && !!card.dev.smartshift
+                    width: parent.width
+                    spacing: Style.space(6)
+                    Text {
+                      textFormat: Text.PlainText
+                      text: root.t("wheelMode")
+                      color: root.fg
+                      font.family: root.font
+                      font.pixelSize: Style.font.caption
+                    }
+                    ButtonGroup {
+                      options: [
+                        { value: "smartshift", label: root.t("smartshift"), tooltip: root.t("smartshiftTip") },
+                        { value: "ratchet", label: root.t("ratchet"), tooltip: root.t("ratchetTip") },
+                        { value: "freespin", label: root.t("freespin"), tooltip: root.t("freespinTip") }
+                      ]
+                      value: card.dev.smartshift ? card.dev.smartshift.mode : ""
+                      foreground: root.fg
+                      fontFamily: root.font
+                      fontSize: Style.font.caption
+                      onChanged: function(picked) { root.set(card.dev, "smartshift", picked) }
+                    }
+                    Item {
+                      visible: !!card.dev.smartshift && card.dev.smartshift.mode === "smartshift"
+                      width: parent.width
+                      height: thresholdSlider.implicitHeight
+                      Text {
+                        id: thresholdLabel
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        textFormat: Text.PlainText
+                        text: root.t("sensitivity")
+                        color: root.dim
+                        font.family: root.font
+                        font.pixelSize: Style.font.caption
+                      }
+                      PanelSlider {
+                        id: thresholdSlider
+                        anchors.left: thresholdLabel.right
+                        anchors.leftMargin: Style.space(10)
+                        anchors.right: thresholdValue.left
+                        anchors.rightMargin: Style.space(10)
+                        anchors.verticalCenter: parent.verticalCenter
+                        bar: root.bar
+                        minimum: 1
+                        maximum: 50
+                        step: 1
+                        fillColor: Commons.Color.accent
+                        value: card.dev.smartshift && card.dev.smartshift.threshold ? card.dev.smartshift.threshold : 10
+                        onReleased: function(v) { root.set(card.dev, "threshold", Math.round(v)) }
+                      }
+                      Text {
+                        id: thresholdValue
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Style.space(28)
+                        horizontalAlignment: Text.AlignRight
+                        textFormat: Text.PlainText
+                        text: Math.round(thresholdSlider.liveValue)
+                        color: root.fg
+                        font.family: root.font
+                        font.pixelSize: Style.font.caption
+                      }
+                    }
+                    Text {
+                      visible: !!card.dev.smartshift && card.dev.smartshift.mode === "smartshift"
+                      width: parent.width
+                      textFormat: Text.PlainText
+                      wrapMode: Text.WordWrap
+                      text: root.t("sensitivityHint")
+                      color: root.dim
+                      font.family: root.font
+                      font.pixelSize: Style.font.caption * 0.9
+                    }
+                  }
+
+                  // ---------------------------------------------- wheel
+                  SettingRow {
+                    visible: card.isOpen && !!card.dev.wheel
+                    label: root.t("natural")
+                    hint: root.t("naturalHint")
+                    ToggleSwitch {
+                      rounded: root.corners.pill > 0
+                      cursorRing: false
+                      trackHeight: Style.space(18)
+                      checked: !!card.dev.wheel && card.dev.wheel.invert
+                      foreground: root.fg
+                      onToggled: root.set(card.dev, "invert", !(card.dev.wheel && card.dev.wheel.invert))
+                    }
+                  }
+                  SettingRow {
+                    visible: card.isOpen && !!card.dev.wheel
+                    label: root.t("hires")
+                    hint: root.t("hiresHint")
+                    ToggleSwitch {
+                      rounded: root.corners.pill > 0
+                      cursorRing: false
+                      trackHeight: Style.space(18)
+                      checked: !!card.dev.wheel && card.dev.wheel.hires
+                      foreground: root.fg
+                      onToggled: root.set(card.dev, "hires", !(card.dev.wheel && card.dev.wheel.hires))
+                    }
+                  }
+
+                  // ---------------------------------------------- Fn keys
+                  SettingRow {
+                    visible: card.isOpen && !!card.dev.fnswap
+                    label: root.t("fnswap")
+                    hint: card.dev.fnswap && card.dev.fnswap.on ? root.t("fnswapOn") : root.t("fnswapOff")
+                    ToggleSwitch {
+                      rounded: root.corners.pill > 0
+                      cursorRing: false
+                      trackHeight: Style.space(18)
+                      checked: !!card.dev.fnswap && card.dev.fnswap.on
+                      foreground: root.fg
+                      onToggled: root.set(card.dev, "fnswap", !(card.dev.fnswap && card.dev.fnswap.on))
+                    }
+                  }
+                }
+              }
+            }
+
+            PanelSeparator { width: parent.width; foreground: root.fg }
+
+            Flow {
+              width: parent.width
               spacing: Style.space(8)
-              Text {
-                width: parent.width
-                textFormat: Text.PlainText
-                text: root.t("setupStep")
-                color: root.fg
-                font.family: root.font
-                font.pixelSize: Style.font.body
-                font.bold: true
-              }
-              Text {
-                width: parent.width
-                textFormat: Text.PlainText
-                wrapMode: Text.WordWrap
-                text: root.t("setupText")
-                color: root.dim
-                font.family: root.font
-                font.pixelSize: Style.font.caption
-              }
               Button {
-                text: root.hostWidget && root.hostWidget.allowing ? root.t("waitingPassword") : root.t("allowAccess")
-                iconText: "󰌋"
+                radius: root.corners.control
+                text: root.t("refresh")
+                iconText: "󰑐"
                 bordered: true
                 foreground: root.fg
                 fontFamily: root.font
-                enabled: !(root.hostWidget && root.hostWidget.allowing)
-                onClicked: if (root.hostWidget) root.hostWidget.allowAccess()
+                onClicked: root.send({ cmd: "refresh" })
+              }
+              Button {
+                radius: root.corners.control
+                text: root.t("bluetooth")
+                iconText: "󰂯"
+                bordered: true
+                foreground: root.fg
+                fontFamily: root.font
+                tooltipText: root.t("bluetoothTip")
+                onClicked: root.btOpen = true
               }
             }
-          }
-
-          Text {
-            visible: text !== ""
-            width: parent.width
-            textFormat: Text.PlainText
-            wrapMode: Text.WordWrap
-            text: root.phase === "none" ? root.t("noneText")
-              : root.phase === "error" ? root.t("error", [String(root.stats.error || "")])
-              : root.stats.message_code ? root.t(root.stats.message_code, root.stats.message_args || []) : ""
-            color: root.phase === "none" ? root.dim : Commons.Color.urgent
-            font.family: root.font
-            font.pixelSize: Style.font.caption
-          }
-
-          // ------------------------------------------------------------ connections
-          // A tree: this PC, then every link (dongle, Bluetooth adapter, cable) on a solid
-          // line (plugged in), then its devices on a dotted line (radio) with their battery.
-          PanelSeparator { visible: root.links.length > 0; width: parent.width; foreground: root.fg }
-          PanelSectionHeader { visible: root.links.length > 0; text: root.t("connections").toUpperCase(); foreground: root.fg; fontFamily: root.font }
-
-          Item {
-            visible: root.links.length > 0
-            width: parent.width
-            height: pcRow.height
-            Rectangle {
-              id: pcBadge
-              width: root.nodeSize; height: width
-              radius: Style.cornerRadius > 0 ? width / 2 : 0
-              color: Commons.Color.accent
-              Text {
-                anchors.centerIn: parent
-                textFormat: Text.PlainText
-                text: "󰍹"
-                color: Commons.Color.background
-                font.family: root.font
-                font.pixelSize: Style.font.body
-              }
             }
-            Row {
-              id: pcRow
-              x: pcBadge.width + Style.space(10)
-              height: pcBadge.height
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                textFormat: Text.PlainText
-                text: root.t("thisPc") + (root.hostName ? "  ·  " + root.hostName : "")
-                color: root.fg
-                font.family: root.font
-                font.pixelSize: Style.font.caption
-                font.bold: true
-              }
-            }
-          }
-
-          Repeater {
-            model: root.links.length
-            delegate: Item {
-              id: linkRow
-              required property int index
-              readonly property var link: root.links[index] || ({ devices: [] })
-              readonly property bool last: index === root.links.length - 1
-              readonly property bool live: link.online > 0
-              readonly property color lineColor: live ? Commons.Color.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.25)
-              readonly property real trunkX: root.nodeSize / 2 - 1
-              readonly property real badgeX: root.nodeSize + Style.space(8)
-              width: column.width
-              height: Math.max(linkHead.height, chips.height) + Style.space(10)
-
-              // Trunk from the PC down to this link (and on to the next one).
-              Rectangle {
-                x: linkRow.trunkX
-                y: -column.spacing
-                width: 2
-                height: (linkRow.last ? linkHead.height / 2 : linkRow.height) + column.spacing
-                color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.25)
-              }
-              // Solid branch: the dongle / adapter is plugged into this PC.
-              Rectangle {
-                x: linkRow.trunkX
-                y: linkHead.height / 2 - 1
-                width: linkRow.badgeX - linkRow.trunkX
-                height: 2
-                color: linkRow.lineColor
-              }
-
-              Row {
-                id: linkHead
-                x: linkRow.badgeX
-                spacing: Style.space(8)
-                Rectangle {
-                  id: linkBadge
-                  width: root.nodeSize; height: width
-                  radius: Style.cornerRadius > 0 ? Style.space(6) : 0
-                  color: linkRow.live ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.2) : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.06)
-                  border.width: 1
-                  border.color: linkRow.lineColor
-                  // Small corner mark for Bluetooth: built into the PC, or a USB stick.
-                  Rectangle {
-                    visible: linkRow.link.type === "bluetooth" && linkRow.link.builtin !== undefined
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    anchors.margins: -Style.space(4)
-                    width: Style.space(15); height: width
-                    radius: width / 2
-                    color: Commons.Color.popups.background
-                    border.width: 1
-                    border.color: linkRow.lineColor
-                    Text {
-                      anchors.centerIn: parent
-                      textFormat: Text.PlainText
-                      text: linkRow.link.builtin ? "󰍹" : "󰕓"
-                      color: linkRow.live ? root.fg : root.dim
-                      font.family: root.font
-                      font.pixelSize: Style.font.caption * 0.7
-                    }
-                    z: 1
-                  }
-                  Text {
-                    anchors.centerIn: parent
-                    textFormat: Text.PlainText
-                    text: root.linkIcon(linkRow.link.type)
-                    color: linkRow.live ? root.fg : root.dim
-                    font.family: root.font
-                    font.pixelSize: Style.font.body
-                  }
-                }
-                Column {
-                  anchors.verticalCenter: linkBadge.verticalCenter
-                  width: root.linkLabelWidth
-                  Text {
-                    width: parent.width
-                    textFormat: Text.PlainText
-                    elide: Text.ElideRight
-                    text: linkRow.link.label
-                    color: linkRow.live ? root.fg : root.dim
-                    font.family: root.font
-                    font.pixelSize: Style.font.caption
-                    font.bold: true
-                  }
-                  Text {
-                    visible: text !== ""
-                    width: parent.width
-                    textFormat: Text.PlainText
-                    elide: Text.ElideRight
-                    text: linkRow.link.sub
-                    wrapMode: Text.WordWrap
-                    maximumLineCount: 2
-                    color: root.dim
-                    font.family: root.font
-                    font.pixelSize: Style.font.caption * 0.85
-                  }
-                }
-              }
-
-              // Devices hang off the link on dotted lines: they talk to it by radio.
-              Column {
-                id: chips
-                x: linkRow.badgeX + root.nodeSize + Style.space(8) + root.linkLabelWidth + Style.space(6)
-                width: linkRow.width - x
-                spacing: Style.space(4)
-                Repeater {
-                  model: linkRow.link.devices.length
-                  delegate: Item {
-                    id: chip
-                    required property int index
-                    readonly property var dev: linkRow.link.devices[index] || ({})
-                    width: chips.width
-                    opacity: root.isHidden(dev) ? 0.5 : 1
-                    height: chipBox.height
-                    // Dotted radio line from the link to the device.
-                    Row {
-                      id: dots
-                      anchors.verticalCenter: parent.verticalCenter
-                      spacing: Style.space(3)
-                      Repeater {
-                        model: 4
-                        delegate: Rectangle {
-                          width: Style.space(3); height: width; radius: width / 2
-                          color: chip.dev.online ? Commons.Color.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.25)
-                        }
-                      }
-                    }
-                    Rectangle {
-                      id: chipBox
-                      x: dots.width + Style.space(4)
-                      width: parent.width - x
-                      height: chipRow.implicitHeight + Style.space(8)
-                      radius: Style.cornerRadius > 0 ? height / 2 : 0
-                      color: chip.dev.online ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.12) : "transparent"
-                      border.width: 1
-                      border.color: chip.dev.online ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.45) : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.12)
-                      Row {
-                        id: chipRow
-                        x: Style.space(8)
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: parent.width - Style.space(16)
-                        spacing: Style.space(6)
-                        Text {
-                          id: chipIcon
-                          anchors.verticalCenter: parent.verticalCenter
-                          textFormat: Text.PlainText
-                          text: root.kindIcon(chip.dev.kind)
-                          color: chip.dev.online ? root.fg : root.dim
-                          font.family: root.font
-                          font.pixelSize: Style.font.caption
-                        }
-                        Text {
-                          anchors.verticalCenter: parent.verticalCenter
-                          width: parent.width - chipIcon.width - chipBattery.width - 2 * parent.spacing
-                          textFormat: Text.PlainText
-                          elide: Text.ElideRight
-                          text: root.deviceName(chip.dev)
-                          color: chip.dev.online ? root.fg : root.dim
-                          font.family: root.font
-                          font.pixelSize: Style.font.caption
-                        }
-                        Text {
-                          id: chipBattery
-                          anchors.verticalCenter: parent.verticalCenter
-                          textFormat: Text.PlainText
-                          text: !chip.dev.online ? root.t("deviceOff")
-                            : chip.dev.battery ? root.batteryIcon(chip.dev.battery) + " " + (chip.dev.battery.percent !== null && chip.dev.battery.percent !== undefined ? chip.dev.battery.percent + "%" : chip.dev.battery.level) : ""
-                          color: chip.dev.online ? root.batteryColor(chip.dev.battery) : root.dim
-                          font.family: root.font
-                          font.pixelSize: Style.font.caption
-                          font.bold: chip.dev.online
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-          Text {
-            visible: root.links.length > 0
-            width: parent.width
-            textFormat: Text.PlainText
-            wrapMode: Text.WordWrap
-            text: root.t("radioHint")
-            color: root.dim
-            font.family: root.font
-            font.pixelSize: Style.font.caption * 0.85
-          }
-
-          // ------------------------------------------------------------ devices
-          PanelSeparator { visible: root.devices.length > 0; width: parent.width; foreground: root.fg }
-          PanelSectionHeader { visible: root.devices.length > 0; text: root.t("devices").toUpperCase(); foreground: root.fg; fontFamily: root.font }
-
-          Repeater {
-            model: root.devices.length
-            delegate: Rectangle {
-              id: card
-              required property int index
-              readonly property var dev: root.deviceAt(index)
-              readonly property bool isOpen: root.expanded[dev.id] === true && dev.online && root.hasSettings(dev)
-              readonly property real pad: Style.space(10)
-              readonly property bool hiddenDev: root.isHidden(dev)
-              width: column.width
-              opacity: hiddenDev ? 0.55 : 1
-              height: cardColumn.implicitHeight + 2 * pad
-              radius: Style.cornerRadius
-              color: dev.online
-                ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, cardHover.hovered ? 0.14 : 0.09)
-                : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, cardHover.hovered ? 0.07 : 0.04)
-              border.width: 1
-              border.color: dev.online
-                ? Qt.rgba(Commons.Color.accent.r, Commons.Color.accent.g, Commons.Color.accent.b, 0.35)
-                : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.08)
-              HoverHandler { id: cardHover }
-
-              Column {
-                id: cardColumn
-                x: card.pad
-                y: card.pad
-                width: card.width - 2 * card.pad
-                spacing: Style.space(10)
-
-                Item {
-                  width: parent.width
-                  height: Math.max(badge.height, nameColumn.implicitHeight)
-
-                  Rectangle {
-                    id: badge
-                    anchors.left: parent.left
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: Style.space(34)
-                    height: width
-                    radius: Style.cornerRadius > 0 ? width / 2 : 0
-                    color: card.dev.online ? Commons.Color.accent : Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.08)
-                    Text {
-                      textFormat: Text.PlainText
-                      anchors.centerIn: parent
-                      text: root.kindIcon(card.dev.kind)
-                      color: card.dev.online ? Commons.Color.background : root.dim
-                      font.family: root.font
-                      font.pixelSize: Style.font.body * 1.15
-                    }
-                  }
-
-                  Column {
-                    id: nameColumn
-                    anchors.left: badge.right
-                    anchors.leftMargin: Style.space(10)
-                    anchors.right: batteryBox.left
-                    anchors.rightMargin: Style.space(8)
-                    anchors.verticalCenter: parent.verticalCenter
-                    Text {
-                      width: parent.width
-                      textFormat: Text.PlainText
-                      elide: Text.ElideRight
-                      text: root.deviceName(card.dev)
-                      color: card.dev.online ? root.fg : Qt.lighter(root.dim, 1.15)
-                      font.family: root.font
-                      font.pixelSize: Style.font.body
-                      font.bold: true
-                    }
-                    Text {
-                      width: parent.width
-                      textFormat: Text.PlainText
-                      elide: Text.ElideRight
-                      text: root.statusLine(card.dev) + (card.hiddenDev ? " · " + root.t("hiddenTag") : "")
-                      color: root.dim
-                      font.family: root.font
-                      font.pixelSize: Style.font.caption
-                    }
-                  }
-
-                  Row {
-                    id: batteryBox
-                    anchors.right: hideButton.left
-                    anchors.rightMargin: Style.space(6)
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: Style.space(4)
-                    visible: card.dev.online && !!card.dev.battery
-                    Text {
-                      anchors.verticalCenter: parent.verticalCenter
-                      textFormat: Text.PlainText
-                      text: root.batteryIcon(card.dev.battery)
-                      color: root.batteryColor(card.dev.battery)
-                      font.family: root.font
-                      font.pixelSize: Style.font.body * 1.1
-                    }
-                    Text {
-                      anchors.verticalCenter: parent.verticalCenter
-                      textFormat: Text.PlainText
-                      text: card.dev.battery && card.dev.battery.percent !== null && card.dev.battery.percent !== undefined
-                        ? card.dev.battery.percent + "%" : (card.dev.battery ? card.dev.battery.level : "")
-                      color: root.batteryColor(card.dev.battery)
-                      font.family: root.font
-                      font.pixelSize: Style.font.caption
-                      font.bold: true
-                    }
-                  }
-
-                  // Hide / show again, right on the card (no menu): the eye.
-                  Button {
-                    id: hideButton
-                    anchors.right: chevron.left
-                    anchors.rightMargin: Style.space(4)
-                    anchors.verticalCenter: parent.verticalCenter
-                    z: 1
-                    iconText: card.hiddenDev ? "󰈈" : "󰈉"
-                    iconSize: Style.font.body
-                    horizontalPadding: Style.space(3)
-                    verticalPadding: Style.space(1)
-                    opacity: card.hiddenDev || cardHover.hovered ? 1 : 0.4
-                    foreground: root.fg
-                    fontFamily: root.font
-                    tooltipText: card.hiddenDev ? root.t("unhide") : root.t("hide")
-                    onClicked: root.setHidden(card.dev, !card.hiddenDev)
-                  }
-
-                  Text {
-                    id: chevron
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    textFormat: Text.PlainText
-                    width: Style.space(14)
-                    horizontalAlignment: Text.AlignRight
-                    text: card.dev.online && root.hasSettings(card.dev) ? (card.isOpen ? "󰅀" : "󰅂") : ""
-                    color: headerMouse.containsMouse ? root.fg : root.dim
-                    font.family: root.font
-                    font.pixelSize: Style.font.body
-                  }
-
-                  MouseArea {
-                    id: headerMouse
-                    anchors.fill: parent
-                    enabled: card.dev.online && root.hasSettings(card.dev)
-                    hoverEnabled: true
-                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                    onClicked: root.toggleExpanded(card.dev)
-                  }
-                }
-
-                Rectangle {
-                  visible: card.isOpen
-                  width: parent.width
-                  height: 1
-                  color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.1)
-                }
-
-                // ---------------------------------------------- DPI
-                Column {
-                  visible: card.isOpen && !!card.dev.dpi && card.dev.dpi.max > 0
-                  width: parent.width
-                  spacing: Style.space(4)
-                  Item {
-                    width: parent.width
-                    height: dpiLabel.implicitHeight
-                    Text {
-                      id: dpiLabel
-                      textFormat: Text.PlainText
-                      text: root.t("dpi")
-                      color: root.fg
-                      font.family: root.font
-                      font.pixelSize: Style.font.caption
-                    }
-                    Text {
-                      anchors.right: parent.right
-                      textFormat: Text.PlainText
-                      text: Math.round(dpiSlider.liveValue) + (card.dev.dpi && Math.round(dpiSlider.liveValue) === card.dev.dpi.default ? " · " + root.t("dpiDefault") : "")
-                      color: root.fg
-                      font.family: root.font
-                      font.pixelSize: Style.font.caption
-                      font.bold: true
-                    }
-                  }
-                  PanelSlider {
-                    id: dpiSlider
-                    width: parent.width
-                    bar: root.bar
-                    minimum: card.dev.dpi ? card.dev.dpi.min : 0
-                    maximum: card.dev.dpi ? card.dev.dpi.max : 1
-                    step: card.dev.dpi && card.dev.dpi.step > 0 ? card.dev.dpi.step : 50
-                    fillColor: Commons.Color.accent
-                    value: card.dev.dpi ? card.dev.dpi.value : 0
-                    onReleased: function(v) { root.set(card.dev, "dpi", Math.round(v)) }
-                    onRightClicked: if (card.dev.dpi) root.set(card.dev, "dpi", card.dev.dpi.default)
-                  }
-                }
-
-                // ---------------------------------------------- SmartShift
-                Column {
-                  visible: card.isOpen && !!card.dev.smartshift
-                  width: parent.width
-                  spacing: Style.space(6)
-                  Text {
-                    textFormat: Text.PlainText
-                    text: root.t("wheelMode")
-                    color: root.fg
-                    font.family: root.font
-                    font.pixelSize: Style.font.caption
-                  }
-                  ButtonGroup {
-                    options: [
-                      { value: "smartshift", label: root.t("smartshift"), tooltip: root.t("smartshiftTip") },
-                      { value: "ratchet", label: root.t("ratchet"), tooltip: root.t("ratchetTip") },
-                      { value: "freespin", label: root.t("freespin"), tooltip: root.t("freespinTip") }
-                    ]
-                    value: card.dev.smartshift ? card.dev.smartshift.mode : ""
-                    foreground: root.fg
-                    fontFamily: root.font
-                    fontSize: Style.font.caption
-                    onChanged: function(picked) { root.set(card.dev, "smartshift", picked) }
-                  }
-                  Item {
-                    visible: !!card.dev.smartshift && card.dev.smartshift.mode === "smartshift"
-                    width: parent.width
-                    height: thresholdSlider.implicitHeight
-                    Text {
-                      id: thresholdLabel
-                      anchors.left: parent.left
-                      anchors.verticalCenter: parent.verticalCenter
-                      textFormat: Text.PlainText
-                      text: root.t("sensitivity")
-                      color: root.dim
-                      font.family: root.font
-                      font.pixelSize: Style.font.caption
-                    }
-                    PanelSlider {
-                      id: thresholdSlider
-                      anchors.left: thresholdLabel.right
-                      anchors.leftMargin: Style.space(10)
-                      anchors.right: thresholdValue.left
-                      anchors.rightMargin: Style.space(10)
-                      anchors.verticalCenter: parent.verticalCenter
-                      bar: root.bar
-                      minimum: 1
-                      maximum: 50
-                      step: 1
-                      fillColor: Commons.Color.accent
-                      value: card.dev.smartshift && card.dev.smartshift.threshold ? card.dev.smartshift.threshold : 10
-                      onReleased: function(v) { root.set(card.dev, "threshold", Math.round(v)) }
-                    }
-                    Text {
-                      id: thresholdValue
-                      anchors.right: parent.right
-                      anchors.verticalCenter: parent.verticalCenter
-                      width: Style.space(28)
-                      horizontalAlignment: Text.AlignRight
-                      textFormat: Text.PlainText
-                      text: Math.round(thresholdSlider.liveValue)
-                      color: root.fg
-                      font.family: root.font
-                      font.pixelSize: Style.font.caption
-                    }
-                  }
-                  Text {
-                    visible: !!card.dev.smartshift && card.dev.smartshift.mode === "smartshift"
-                    width: parent.width
-                    textFormat: Text.PlainText
-                    wrapMode: Text.WordWrap
-                    text: root.t("sensitivityHint")
-                    color: root.dim
-                    font.family: root.font
-                    font.pixelSize: Style.font.caption * 0.9
-                  }
-                }
-
-                // ---------------------------------------------- wheel
-                SettingRow {
-                  visible: card.isOpen && !!card.dev.wheel
-                  label: root.t("natural")
-                  hint: root.t("naturalHint")
-                  ToggleSwitch {
-                    cursorRing: false
-                    trackHeight: Style.space(18)
-                    checked: !!card.dev.wheel && card.dev.wheel.invert
-                    foreground: root.fg
-                    onToggled: root.set(card.dev, "invert", !(card.dev.wheel && card.dev.wheel.invert))
-                  }
-                }
-                SettingRow {
-                  visible: card.isOpen && !!card.dev.wheel
-                  label: root.t("hires")
-                  hint: root.t("hiresHint")
-                  ToggleSwitch {
-                    cursorRing: false
-                    trackHeight: Style.space(18)
-                    checked: !!card.dev.wheel && card.dev.wheel.hires
-                    foreground: root.fg
-                    onToggled: root.set(card.dev, "hires", !(card.dev.wheel && card.dev.wheel.hires))
-                  }
-                }
-
-                // ---------------------------------------------- Fn keys
-                SettingRow {
-                  visible: card.isOpen && !!card.dev.fnswap
-                  label: root.t("fnswap")
-                  hint: card.dev.fnswap && card.dev.fnswap.on ? root.t("fnswapOn") : root.t("fnswapOff")
-                  ToggleSwitch {
-                    cursorRing: false
-                    trackHeight: Style.space(18)
-                    checked: !!card.dev.fnswap && card.dev.fnswap.on
-                    foreground: root.fg
-                    onToggled: root.set(card.dev, "fnswap", !(card.dev.fnswap && card.dev.fnswap.on))
-                  }
-                }
-              }
-            }
-          }
-
-          PanelSeparator { width: parent.width; foreground: root.fg }
-
-          Flow {
-            width: parent.width
-            spacing: Style.space(8)
-            Button {
-              text: root.t("refresh")
-              iconText: "󰑐"
-              bordered: true
-              foreground: root.fg
-              fontFamily: root.font
-              onClicked: root.send({ cmd: "refresh" })
-            }
-            Button {
-              text: root.t("bluetooth")
-              iconText: "󰂯"
-              bordered: true
-              foreground: root.fg
-              fontFamily: root.font
-              tooltipText: root.t("bluetoothTip")
-              onClicked: root.btOpen = true
-            }
-          }
           }
         }
       }

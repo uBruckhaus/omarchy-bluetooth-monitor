@@ -35,6 +35,8 @@ The gear in the panel opens the settings page (back with the button, Backspace o
 
 - **Language**: the system language (default) or English, Deutsch, Français, Español,
   Italiano, Português, Nederlands, Polski
+- **Corners:** *Like windows (… px)* (the default) follows Hyprland's window rounding (`decoration:rounding`, as the shell reads it), *Slightly rounded (6 px)*, *Rounded (12 px)* or *Square*. It rounds the panel's device cards, setup box, buttons, drop-downs, device and connection badges, chips, dots and switches (cards and pop-ups at the full radius, buttons, drop-downs and fields at most 8 px, tracks and swatches at most 4 px; switches, badges and dots round, or square in *Square*). The panel's outer frame, its tool tips, the status pill in its header and the shell's sliders are drawn by the shell and keep the shell's rounding. Stored as `"corners"` in the widget's entry in `~/.config/omarchy/shell.json`; *Like windows* removes it again.
+- **F12 saves a screenshot** (on by default; stored as `"screenshotKey": false` when switched off, see below).
 - **Low / critical battery warning**: when the bar icon turns orange / red (25 % and 10 %
   by default)
 - **Other Bluetooth devices**: show trackpads, earphones, controllers and other devices
@@ -43,6 +45,16 @@ The gear in the panel opens the settings page (back with the button, Backspace o
 - **Receiver access**: whether Logitech receivers can be read, with the button to allow it
 
 Choices are stored in the widget's own entry in `~/.config/omarchy/shell.json`.
+
+### F12: a screenshot of the panel, with a note
+
+While the panel is open, **F12** (without Ctrl, Shift, Alt or Super) saves a picture of the panel, for telling what is wrong with it, as in the author's GTK apps:
+
+- **Only on F12.** Nothing is captured at any other time, and only the panel itself: Qt draws the panel's own content into the picture (`grabToImage`). No screen capture tool runs, nothing else on the screen is in it, and nothing is uploaded or sent anywhere.
+- **Where:** `~/Pictures/Bluetooth Monitor/bluetooth-monitor-<date>-<time>.png` (the pictures folder from `~/.config/user-dirs.dirs` when it is set there). A panel then names the file and asks **What is wrong? (optional)**; **Enter** or **Done** saves the text next to the picture as a `.txt` with the same name (at most 4000 characters; no text, no file), **Esc** skips it, and closing the panel keeps what was typed.
+- **Private files:** the folder is made `0700` when missing and only used when it is a real folder (not a link) of yours that no one else can write to; pictures and notes are new `0600` files, never written through a link or over an existing file (`-2`, `-3` … are added instead), and a picture that cannot be written completely is removed again.
+- **How:** the panel first writes the picture into its own folder `$XDG_RUNTIME_DIR/ubruckhaus.bluetooth-monitor-shot/` (`0700`, in memory, cleared after ten minutes at the latest). `shot_save.py` (Python standard library) is then started with a fixed argument list, never through a shell: `prepare <plugin id>`, `save <picture> "Bluetooth Monitor"` (checks that the picture is a regular file of yours in that folder, at most 32 MiB and a PNG, copies it as above and removes it), and `note <picture> "Bluetooth Monitor"` with the note on its standard input. Each call answers with one line of JSON.
+- **Off:** switch **F12 saves a screenshot** off on the settings page; F12 then does nothing in this panel.
 
 The **ⓘ** button beside the gear opens an **Information** page with a card for each of the author's other plugins in the Omarchy Plugin Marketplace, with a short description in the panel's language. A click on a card opens that plugin's marketplace page in the browser (a fixed `https://plugins.omarchy.org/plugin.html?id=…` address). The list comes from the marketplace's catalog, so newly published plugins of the author appear without a Bluetooth Monitor update; a plugin this version does not know yet shows the first sentence of its marketplace description, in English (see *Information page* below). **← Back**, Backspace or Esc returns.
 
@@ -115,7 +127,7 @@ omarchy plugin remove ubruckhaus.bluetooth-monitor
 rm -r ~/.config/omarchy/bluetooth-monitor   # remembered Logitech settings, if any
 ```
 
-If you allowed receiver access, remove the udev rule as shown under Permissions. The Information page's plugin list is cached in `~/.cache/ubruckhaus.bluetooth-monitor/`; delete that folder too if you like (it is only a cache).
+If you allowed receiver access, remove the udev rule as shown under Permissions. The Information page's plugin list is cached in `~/.cache/ubruckhaus.bluetooth-monitor/`; delete that folder too if you like (it is only a cache). Screenshots you took with F12 stay in `~/Pictures/Bluetooth Monitor/` until you delete them.
 
 ## Development
 
@@ -127,6 +139,8 @@ omarchy plugin validate .
 The tests cover HID++ parsing (pairing slots, DPI ranges, battery features), UPower and BlueZ
 output, adapter detection, a flooding device, endless or silent child processes and markup in device
 names. `I18n.js` is generated from a shared translation table by the author's i18n tool.
+
+`PanelShot.qml`, `shot_save.py` (with `tests/test_shot_save.py`), `corners.js`, `KeyTextField.qml`, `CompactDropdown.qml`, `MorePlugins.qml` and the shared texts in `I18n.js` come from the author's shared plugin kit and are the same in his other panels.
 
 ## License
 

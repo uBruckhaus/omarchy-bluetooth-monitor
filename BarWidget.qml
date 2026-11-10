@@ -6,6 +6,7 @@ import qs.Commons
 import qs.Commons as Commons
 import qs.Ui as Ui
 import "I18n.js" as I18n
+import "corners.js" as Corners
 
 // Bar indicator for Logitech mice and keyboards and other battery-powered peripherals:
 // a mouse glyph in the theme's green while every connected battery is fine, orange when
@@ -38,6 +39,21 @@ Ui.BarWidget {
     root.bar.shell.updateEntryInline(root.moduleName, next)
   }
   function setLanguage(code) { setOption("language", code, "auto") }
+
+  // Corners of the panel's cards and controls, and the F12 screenshot key (settings page);
+  // both live in this widget's shell.json entry like the language, the defaults as no key.
+  readonly property string cornersSetting: Corners.choice(String(root.setting("corners", "windows")))
+  readonly property var corners: Corners.sizes(cornersSetting, Style.cornerRadius)
+  readonly property bool screenshotKey: root.setting("screenshotKey", true) !== false
+  function saveSetting(key, value, fallback) {
+    if (!root.bar || !root.bar.shell || typeof root.bar.shell.updateEntryInline !== "function") return
+    var next = Object.assign({}, root.settings || {})
+    if (value === fallback) delete next[key]
+    else next[key] = value
+    root.bar.shell.updateEntryInline(root.moduleName, next)
+  }
+  function setCorners(code) { saveSetting("corners", Corners.choice(code), "windows") }
+  function setScreenshotKey(on) { saveSetting("screenshotKey", on === true, true) }
   // Devices hidden by hand in the panel (like Launch & Bind's hidden apps), by their
   // stable key (model id or serial), not the per-boot hidraw id. Hidden devices leave
   // the bar's icon and tooltip too, so an ignored device never warns.
